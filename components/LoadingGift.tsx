@@ -168,6 +168,155 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
     const particles = new Particles(scene)
     const fireflies = new Fireflies(scene)
 
+    // Unique interactive elements
+    // 1. Magical sparkle trail that follows mouse movement
+    const sparkleTrail: Array<{
+      mesh: THREE.Mesh
+      life: number
+      velocity: THREE.Vector3
+    }> = []
+    const maxTrailLength = 20
+
+    function addSparkleToTrail(x: number, y: number) {
+      const geometry = new THREE.SphereGeometry(0.03, 6, 6)
+      const material = new THREE.MeshBasicMaterial({
+        color: new THREE.Color().setHSL((Math.random() * 0.3 + 0.5) % 1, 1, 0.6),
+        transparent: true,
+        opacity: 0.8,
+      })
+      const sparkle = new THREE.Mesh(geometry, material)
+
+      // Convert screen to world coords
+      const worldX = ((x / width) * 2 - 1) * 4
+      const worldY = (-(y / height) * 2 + 1) * 3
+      sparkle.position.set(worldX, worldY, 0)
+
+      sparkleTrail.push({
+        mesh: sparkle,
+        life: 1.0,
+        velocity: new THREE.Vector3(
+          (Math.random() - 0.5) * 0.1,
+          (Math.random() - 0.5) * 0.1,
+          (Math.random() - 0.5) * 0.1
+        ),
+      })
+
+      scene.add(sparkle)
+
+      // Limit trail length
+      if (sparkleTrail.length > maxTrailLength) {
+        const old = sparkleTrail.shift()
+        if (old) {
+          scene.remove(old.mesh)
+          old.mesh.geometry.dispose()
+          ;(old.mesh.material as THREE.Material).dispose()
+        }
+      }
+    }
+
+    // 2. Gift opening particles on click
+    const giftBursts: Array<{
+      particles: THREE.Points
+      life: number
+      giftIndex: number
+    }> = []
+
+    function createGiftBurst(giftIndex: number, giftPosition: THREE.Vector3) {
+      const burstCount = 30
+      const geometry = new THREE.BufferGeometry()
+      const positions = new Float32Array(burstCount * 3)
+      const colors = new Float32Array(burstCount * 3)
+      const sizes = new Float32Array(burstCount)
+
+      const color = new THREE.Color()
+      const giftColors = [0xff6b6b, 0x4ecdc4, 0xffe66d, 0x95e1d3, 0xf38181]
+
+      for (let i = 0; i < burstCount; i++) {
+        const i3 = i * 3
+        const angle = (i / burstCount) * Math.PI * 2
+        const speed = 0.5 + Math.random() * 0.5
+        positions[i3] = giftPosition.x + Math.cos(angle) * speed
+        positions[i3 + 1] = giftPosition.y + Math.sin(angle) * speed + 0.2
+        positions[i3 + 2] = giftPosition.z + (Math.random() - 0.5) * 0.3
+
+        color.setHex(giftColors[giftIndex % giftColors.length])
+        colors[i3] = color.r
+        colors[i3 + 1] = color.g
+        colors[i3 + 2] = color.b
+
+        sizes[i] = 0.05 + Math.random() * 0.05
+      }
+
+      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
+      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
+      geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1))
+
+      const material = new THREE.ShaderMaterial({
+        uniforms: {
+          time: { value: 0 },
+        },
+        vertexShader: `
+          attribute float size;
+          attribute vec3 color;
+          varying vec3 vColor;
+          uniform float time;
+          void main() {
+            vColor = color;
+            vec3 pos = position;
+            pos.y -= time * 2.0;
+            vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
+            gl_Position = projectionMatrix * mvPosition;
+            gl_PointSize = size * (300.0 / -mvPosition.z) * (1.0 - time);
+          }
+        `,
+        fragmentShader: `
+          varying vec3 vColor;
+          void main() {
+            float dist = length(gl_PointCoord - vec2(0.5));
+            if (dist > 0.5) discard;
+            float alpha = 1.0 - smoothstep(0.0, 0.5, dist);
+            gl_FragColor = vec4(vColor, alpha * 0.8);
+          }
+        `,
+        transparent: true,
+        blending: THREE.AdditiveBlending,
+        vertexColors: true,
+      })
+
+      const burst = new THREE.Points(geometry, material)
+      scene.add(burst)
+
+      giftBursts.push({
+        particles: burst,
+        life: 0,
+        giftIndex,
+      })
+    }
+
+    // 3. Floating progress indicator (magical orb)
+    const progressOrbGeometry = new THREE.SphereGeometry(0.15, 16, 16)
+    const progressOrbMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffd700,
+      emissive: 0xffd700,
+      emissiveIntensity: 0.5,
+      metalness: 0.8,
+      roughness: 0.2,
+    })
+    const progressOrb = new THREE.Mesh(progressOrbGeometry, progressOrbMaterial)
+    progressOrb.position.set(-3, 3, 0)
+    scene.add(progressOrb)
+
+    // 4. Dynamic tree light colors based on interactions
+    const treeLights: THREE.PointLight[] = []
+    const lightColorPalette = [
+      new THREE.Color(0xff6b6b),
+      new THREE.Color(0x4ecdc4),
+      new THREE.Color(0xffe66d),
+      new THREE.Color(0x95e1d3),
+      new THREE.Color(0xf38181),
+      new THREE.Color(0xa8e6cf),
+    ]
+
     // Load assets
     Promise.all([
       lights.load(),
@@ -179,6 +328,21 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       fireflies.load()
     ]).then(() => {
       console.log('All assets loaded')
+      
+      // Initialize tree lights after tree is loaded
+      if (christmasTree.tree) {
+        for (let i = 0; i < 8; i++) {
+          const light = new THREE.PointLight(0xffffff, 0.5, 5)
+          const angle = (i / 8) * Math.PI * 2
+          light.position.set(
+            Math.cos(angle) * 1.5,
+            1 + (i % 3) * 0.8,
+            Math.sin(angle) * 1.5
+          )
+          scene.add(light)
+          treeLights.push(light)
+        }
+      }
     })
 
     // Animation loop
@@ -227,12 +391,66 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       // Interactive effects based on signals
       const turbulence = Math.min(signalsRef.current.pixelsMoved / 10000, 1)
       const crystallization = Math.min(signalsRef.current.idleMs / 5000, 1)
+      const clickIntensity = Math.min(signalsRef.current.clicks / 20, 1)
 
       // Tree sway
       if (christmasTree.tree) {
         christmasTree.tree.rotation.z = Math.sin(elapsedTime * 2) * turbulence * 0.1
         christmasTree.tree.rotation.x = Math.cos(elapsedTime * 1.5) * turbulence * 0.05
       }
+
+      // Update sparkle trail
+      sparkleTrail.forEach((sparkle, index) => {
+        sparkle.life -= deltaTime * 2
+        if (sparkle.life <= 0) {
+          scene.remove(sparkle.mesh)
+          sparkle.mesh.geometry.dispose()
+          ;(sparkle.mesh.material as THREE.Material).dispose()
+          sparkleTrail.splice(index, 1)
+        } else {
+          sparkle.mesh.position.add(
+            sparkle.velocity.clone().multiplyScalar(deltaTime * 2)
+          )
+          ;(sparkle.mesh.material as THREE.MeshBasicMaterial).opacity =
+            sparkle.life * 0.8
+          sparkle.mesh.scale.setScalar(0.5 + sparkle.life * 0.5)
+        }
+      })
+
+      // Update gift bursts
+      giftBursts.forEach((burst, index) => {
+        burst.life += deltaTime
+        if (burst.life >= 1) {
+          scene.remove(burst.particles)
+          burst.particles.geometry.dispose()
+          ;(burst.particles.material as THREE.Material).dispose()
+          giftBursts.splice(index, 1)
+        } else {
+          ;(burst.particles.material as any).uniforms.time.value = burst.life
+        }
+      })
+
+      // Update progress orb
+      const progress = Math.min(elapsed / loadingDuration, 1)
+      progressOrb.position.y = 3 + Math.sin(elapsedTime * 2) * 0.2
+      progressOrb.rotation.y += deltaTime * 2
+      progressOrb.rotation.x = Math.sin(elapsedTime * 1.5) * 0.3
+      ;(progressOrbMaterial as THREE.MeshStandardMaterial).emissiveIntensity =
+        0.5 + progress * 0.5
+      progressOrb.scale.setScalar(0.8 + progress * 0.4)
+
+      // Dynamic tree lights (colorful point lights that shift based on interactions)
+      treeLights.forEach((light, i) => {
+        const colorIndex =
+          (Math.floor(elapsedTime * 0.5) + i) % lightColorPalette.length
+        const baseColor = lightColorPalette[colorIndex]
+        const clickColor = lightColorPalette[
+          (colorIndex + Math.floor(clickIntensity * lightColorPalette.length)) %
+            lightColorPalette.length
+        ]
+        light.color.lerpColors(baseColor, clickColor, clickIntensity * 0.5)
+        light.intensity = 0.5 + Math.sin(elapsedTime * 3 + i) * 0.3 + clickIntensity * 0.4
+      })
 
       // Controls update
       controls.update()
@@ -242,6 +460,15 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
         const openingProgress = Math.min((now - (startTime + loadingDuration)) / 1500, 1)
         camera.position.z = 12 + openingProgress * 2
         camera.position.y = 2 + openingProgress * 1
+
+        // Progress orb fades out and moves to center
+        progressOrb.position.lerp(new THREE.Vector3(0, 2, 0), openingProgress * 0.1)
+        ;(progressOrbMaterial as THREE.MeshStandardMaterial).opacity = 1 - openingProgress
+
+        // Tree lights intensify
+        treeLights.forEach((light) => {
+          light.intensity = 0.5 + openingProgress * 1.5
+        })
       }
 
       // Render
@@ -303,11 +530,41 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       signalsRef.current.lastX = e.clientX
       signalsRef.current.lastY = e.clientY
       signalsRef.current.lastMoveTime = now
+
+      // Add sparkle to trail (throttled)
+      if (distance > 5) {
+        addSparkleToTrail(e.clientX, e.clientY)
+      }
     }
 
     const handleClick = (e: MouseEvent) => {
       if (!signalsRef.current.isTracking) return
       signalsRef.current.clicks++
+
+      // Create gift burst on click
+      if (gift && gift.gifts && gift.gifts.length > 0) {
+        const giftIndex = Math.floor(Math.random() * gift.gifts.length)
+        const giftMesh = gift.gifts[giftIndex]
+        if (giftMesh) {
+          const worldPosition = new THREE.Vector3()
+          giftMesh.getWorldPosition(worldPosition)
+          createGiftBurst(giftIndex, worldPosition)
+
+          // Animate gift bounce
+          const originalY = giftMesh.position.y
+          let bounceTime = 0
+          const bounceInterval = setInterval(() => {
+            bounceTime += 0.1
+            if (bounceTime >= 1) {
+              giftMesh.position.y = originalY
+              clearInterval(bounceInterval)
+            } else {
+              giftMesh.position.y =
+                originalY + Math.sin(bounceTime * Math.PI) * 0.3
+            }
+          }, 16)
+        }
+      }
     }
 
     // Idle time tracking
@@ -354,6 +611,24 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       if (animationFrameRef.current) {
         cancelAnimationFrame(animationFrameRef.current)
       }
+
+      // Cleanup unique elements
+      sparkleTrail.forEach((sparkle) => {
+        scene.remove(sparkle.mesh)
+        sparkle.mesh.geometry.dispose()
+        ;(sparkle.mesh.material as THREE.Material).dispose()
+      })
+
+      giftBursts.forEach((burst) => {
+        scene.remove(burst.particles)
+        burst.particles.geometry.dispose()
+        ;(burst.particles.material as THREE.Material).dispose()
+      })
+
+      treeLights.forEach((light) => scene.remove(light))
+      scene.remove(progressOrb)
+      progressOrbGeometry.dispose()
+      ;(progressOrbMaterial as THREE.Material).dispose()
 
       if (renderer && container) {
         container.removeChild(renderer.domElement)
