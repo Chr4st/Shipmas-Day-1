@@ -249,10 +249,29 @@ export function selectComplimentFromCandidates(
   })
 
   if (validCandidates.length === 0) {
-    // All candidates are avoided, try advancing PRNG and picking from all
-    // This handles the case where all in batch are seen
-    const fallbackIndex = rng.nextInt(candidates.length)
-    const fallbackText = candidates[fallbackIndex].trim().replace(/\s+/g, ' ')
+    // All candidates are avoided, try advancing PRNG multiple times
+    // to find one that's not avoided (up to candidates.length attempts)
+    let attempts = 0
+    const maxAttempts = Math.min(candidates.length, 50)
+    
+    while (attempts < maxAttempts) {
+      const candidateIndex = rng.nextInt(candidates.length)
+      const candidateText = candidates[candidateIndex].trim().replace(/\s+/g, ' ')
+      const candidateHash = hashFingerprint(candidateText)
+      
+      if (!avoidHashes.has(candidateHash)) {
+        return {
+          complimentText: candidateText,
+          complimentHash: candidateHash,
+          fingerprintHash: hash,
+        }
+      }
+      attempts++
+    }
+    
+    // If still no valid candidate after max attempts, return the first one anyway
+    // (This should rarely happen if avoidHashes is reasonable)
+    const fallbackText = candidates[0].trim().replace(/\s+/g, ' ')
     return {
       complimentText: fallbackText,
       complimentHash: hashFingerprint(fallbackText),

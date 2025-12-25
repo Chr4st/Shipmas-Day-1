@@ -19,20 +19,43 @@ function hashString(text: string): string {
 
 // Fetch a single compliment from the public API
 async function fetchCompliment(): Promise<string> {
-  const response = await fetch('https://compliments-api.vercel.app/random', {
-    headers: {
-      'Accept': 'application/json',
-    },
-  })
+  try {
+    // Create abort controller for timeout
+    const controller = new AbortController()
+    const timeoutId = setTimeout(() => controller.abort(), 5000)
 
-  if (!response.ok) {
-    throw new Error(`API returned ${response.status}`)
+    const response = await fetch('https://compliments-api.vercel.app/random', {
+      headers: {
+        'Accept': 'application/json',
+      },
+      signal: controller.signal,
+    })
+
+    clearTimeout(timeoutId)
+
+    if (!response.ok) {
+      throw new Error(`API returned ${response.status}: ${response.statusText}`)
+    }
+
+    const data = await response.json()
+    // Handle different possible response formats
+    const text = data.compliment || data.text || data.message || data.complimentText || ''
+    
+    if (!text || typeof text !== 'string') {
+      throw new Error('Invalid API response format')
+    }
+    
+    return text.trim()
+  } catch (error) {
+    // Re-throw with more context
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        throw new Error('Request timeout')
+      }
+      throw new Error(`Failed to fetch compliment: ${error.message}`)
+    }
+    throw error
   }
-
-  const data = await response.json()
-  // Handle different possible response formats
-  const text = data.compliment || data.text || data.message || ''
-  return text.trim()
 }
 
 // Normalize compliment text
@@ -92,6 +115,10 @@ export async function POST(request: NextRequest) {
 
     const avoidHashesSet = new Set(avoidHashes)
 
+    // Generate a session nonce for this request to ensure uniqueness
+    // This ensures "Try again" gets a different selection even with same signals
+    const sessionNonce = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
+
     // Try fetching from public API (up to 3 rounds)
     let selectedCompliment: { complimentText: string; complimentHash: string } | null = null
     let rounds = 0
@@ -112,6 +139,7 @@ export async function POST(request: NextRequest) {
         )
 
         if (fetchedTexts.length === 0) {
+          console.warn(`Round ${rounds}: No compliments fetched from API`)
           continue // Try next round
         }
 
@@ -121,53 +149,80 @@ export async function POST(request: NextRequest) {
           .filter((text) => text.length > 0)
 
         if (normalized.length === 0) {
+          console.warn(`Round ${rounds}: All fetched compliments were empty after normalization`)
           continue // Try next round
         }
 
-        // Try to select from this batch
+        // Try to select from this batch with session nonce for uniqueness
         try {
           const result = selectComplimentFromCandidates(
             signals,
             userKey,
             env,
             normalized,
-            avoidHashesSet
+            avoidHashesSet,
+            sessionNonce
           )
 
-          // Check if the selected compliment is in avoidHashes
+          // Double-check the selected compliment is not in avoidHashes
           if (!avoidHashesSet.has(result.complimentHash)) {
             selectedCompliment = {
               complimentText: result.complimentText,
               complimentHash: result.complimentHash,
             }
             break
+          } else {
+            console.warn(`Round ${rounds}: Selected compliment was in avoidHashes, trying next round`)
           }
         } catch (selectError) {
-          // Selection failed, try next round
+          console.error(`Round ${rounds}: Selection error:`, selectError)
           continue
         }
       } catch (fetchError) {
         // Fetch failed, try next round or fallback
-        console.error('Error fetching compliments:', fetchError)
+        console.error(`Round ${rounds}: Fetch error:`, fetchError)
         continue
       }
     }
 
     // Fallback to embedded list if API failed or all were avoided
     if (!selectedCompliment) {
+      console.log('Falling back to embedded compliments list')
       try {
         const result = selectComplimentFromCandidates(
           signals,
           userKey,
           env,
           fallbackCompliments,
-          avoidHashesSet
+          avoidHashesSet,
+          sessionNonce
         )
-        selectedCompliment = {
-          complimentText: result.complimentText,
-          complimentHash: result.complimentHash,
+        
+        // If fallback selection is also avoided, try advancing PRNG
+        if (avoidHashesSet.has(result.complimentHash)) {
+          console.warn('Fallback selection was avoided, advancing PRNG')
+          // Use a different nonce to get a different selection
+          const advancedNonce = `${sessionNonce}-advance`
+          const advancedResult = selectComplimentFromCandidates(
+            signals,
+            userKey,
+            env,
+            fallbackCompliments,
+            avoidHashesSet,
+            advancedNonce
+          )
+          selectedCompliment = {
+            complimentText: advancedResult.complimentText,
+            complimentHash: advancedResult.complimentHash,
+          }
+        } else {
+          selectedCompliment = {
+            complimentText: result.complimentText,
+            complimentHash: result.complimentHash,
+          }
         }
       } catch (fallbackError) {
+        console.error('Fallback selection error:', fallbackError)
         // Even fallback failed, return a default
         const defaultText =
           'You are doing great, and your persistence is admirable.'
