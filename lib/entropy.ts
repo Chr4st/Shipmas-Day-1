@@ -164,27 +164,110 @@ export function getUserKey(): string {
   return userKey
 }
 
-// Client-side helper to track issued compliments
-export function getIssuedComplimentIds(): string[] {
+// Client-side helper to track issued compliments (by hash)
+export function getSeenComplimentHashes(): string[] {
   if (typeof window === 'undefined') {
     return []
   }
 
-  const STORAGE_KEY = 'shipmas_issued_ids'
+  const STORAGE_KEY = 'shipmas_seen_hashes'
   const stored = localStorage.getItem(STORAGE_KEY)
   return stored ? JSON.parse(stored) : []
 }
 
-export function addIssuedComplimentId(id: string): void {
+export function addSeenComplimentHash(hash: string): void {
   if (typeof window === 'undefined') {
     return
   }
 
-  const STORAGE_KEY = 'shipmas_issued_ids'
-  const current = getIssuedComplimentIds()
-  if (!current.includes(id)) {
-    current.push(id)
+  const STORAGE_KEY = 'shipmas_seen_hashes'
+  const current = getSeenComplimentHashes()
+  if (!current.includes(hash)) {
+    current.push(hash)
+    // Cap at 1000 to prevent localStorage bloat
+    if (current.length > 1000) {
+      current.shift()
+    }
     localStorage.setItem(STORAGE_KEY, JSON.stringify(current))
+  }
+}
+
+// Get last N hashes for avoidHashes payload (keep payload small)
+export function getAvoidHashes(limit: number = 200): string[] {
+  const all = getSeenComplimentHashes()
+  return all.slice(-limit)
+}
+
+// Legacy functions for backward compatibility (now use hash-based)
+export function getIssuedComplimentIds(): string[] {
+  return getSeenComplimentHashes()
+}
+
+export function addIssuedComplimentId(id: string): void {
+  addSeenComplimentHash(id)
+}
+
+// Select from candidate compliments using deterministic PRNG
+// Returns the selected compliment text and its hash
+export function selectComplimentFromCandidates(
+  signals: UserSignals,
+  userKey: string,
+  env: EnvData,
+  candidates: string[],
+  avoidHashes: Set<string>,
+  sessionNonce?: string
+): { complimentText: string; complimentHash: string; fingerprintHash: string } {
+  if (candidates.length === 0) {
+    throw new Error('No compliments available')
+  }
+
+  // Build fingerprint and hash
+  const fingerprint = buildFingerprint(signals, userKey, env, sessionNonce)
+  const hash = hashFingerprint(fingerprint)
+  const seed = hashToSeed(hash)
+
+  // Create PRNG from seed
+  const rng = new SplitMix64(seed)
+
+  // Hash each candidate and filter out avoided ones
+  const candidateHashes = candidates.map((text) => {
+    const normalized = text.trim().replace(/\s+/g, ' ')
+    return {
+      text: normalized,
+      hash: hashFingerprint(normalized),
+    }
+  })
+
+  // Filter out duplicates within batch and avoided hashes
+  const seenInBatch = new Set<string>()
+  const validCandidates = candidateHashes.filter((c) => {
+    if (seenInBatch.has(c.hash) || avoidHashes.has(c.hash)) {
+      return false
+    }
+    seenInBatch.add(c.hash)
+    return true
+  })
+
+  if (validCandidates.length === 0) {
+    // All candidates are avoided, try advancing PRNG and picking from all
+    // This handles the case where all in batch are seen
+    const fallbackIndex = rng.nextInt(candidates.length)
+    const fallbackText = candidates[fallbackIndex].trim().replace(/\s+/g, ' ')
+    return {
+      complimentText: fallbackText,
+      complimentHash: hashFingerprint(fallbackText),
+      fingerprintHash: hash,
+    }
+  }
+
+  // Select deterministically from valid candidates
+  const selectedIndex = rng.nextInt(validCandidates.length)
+  const selected = validCandidates[selectedIndex]
+
+  return {
+    complimentText: selected.text,
+    complimentHash: selected.hash,
+    fingerprintHash: hash,
   }
 }
 

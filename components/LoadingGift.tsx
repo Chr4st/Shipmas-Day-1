@@ -210,20 +210,18 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       setProgress(currentProgress)
 
       // Update shader uniforms
-      if (material.uniforms) {
-        material.uniforms.time.value = elapsed / 1000
-        material.uniforms.turbulence.value = Math.min(
-          signalsRef.current.pixelsMoved / 10000,
-          1
-        )
-        material.uniforms.crystallization.value = Math.min(
-          signalsRef.current.idleMs / 5000,
-          1
-        )
-        material.uniforms.opening.value = isOpening
-          ? Math.min((now - (startTime + loadingDuration)) / 1000, 1)
-          : 0
-      }
+      material.uniforms.time.value = elapsed / 1000
+      material.uniforms.turbulence.value = Math.min(
+        signalsRef.current.pixelsMoved / 10000,
+        1
+      )
+      material.uniforms.crystallization.value = Math.min(
+        signalsRef.current.idleMs / 5000,
+        1
+      )
+      material.uniforms.opening.value = isOpening
+        ? Math.min((now - (startTime + loadingDuration)) / 1000, 1)
+        : 0
 
       // Update ripples
       ripples.forEach((ripple, index) => {

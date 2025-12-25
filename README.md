@@ -2,6 +2,48 @@
 
 A gift-wrapped loading experience with personalized compliments powered by an entropy-based selection algorithm.
 
+## Features
+
+- Full-screen Three.js loading animation that responds to user interactions
+- Entropy-based compliment selection using continuous normalization (no bucket-based logic)
+- Client-side deduplication via localStorage to ensure unique compliments per user
+- Premium reveal animation with smooth transitions
+- Accessibility support for reduced motion preferences
+- Compliments sourced from public API with embedded fallback
+
+## Tech Stack
+
+- **Next.js 14** (App Router) with TypeScript
+- **Tailwind CSS** for styling
+- **Three.js** for WebGL animations
+- **Public Compliments API** (https://compliments-api.vercel.app/random)
+- **Vercel-ready** deployment configuration (no database required)
+
+## Local Development
+
+### Prerequisites
+
+- Node.js 18+ and npm
+- No database setup required
+
+### Setup Steps
+
+1. **Install dependencies:**
+
+```bash
+npm install
+```
+
+2. **Run the development server:**
+
+```bash
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+That is it. No database configuration needed.
+
 ## How It Works
 
 ### Loading Phase
@@ -29,14 +71,18 @@ The selection algorithm uses continuous normalization (no if-statements):
    - User key (stable anonymous ID)
 3. Hashes the fingerprint using SHA-256
 4. Seeds a deterministic PRNG (SplitMix64) from the hash
-5. Selects a compliment deterministically from available candidates
-6. Enforces deduplication (skips already-issued compliments)
+5. Fetches a batch of compliments from the public API
+6. Selects a compliment deterministically from the batch using the seeded PRNG
+7. Enforces deduplication via avoidHashes (skips already-seen compliments)
 
 ### Deduplication
 
-- **Client-side**: Uses localStorage to track issued compliment IDs
-- **Server-side**: Uses the `issued` table keyed by anonymous `user_key`
-- Both work together to ensure no repeats across sessions
+- **Client-side**: Uses localStorage to track seen compliment hashes (SHA-256 of text)
+- **Request payload**: Sends last 200 seen hashes as `avoidHashes` to server
+- **Server-side**: Filters out avoided hashes before selection
+- If all candidates in a batch are avoided, fetches another batch (up to 3 rounds)
+- Falls back to embedded compliment list if API fails
+- Ensures no repeats for the same user until exhaustion
 
 ## Deployment
 
@@ -44,21 +90,9 @@ The selection algorithm uses continuous normalization (no if-statements):
 
 1. Push your code to GitHub
 2. Import the repository in Vercel
-3. Add your `DATABASE_URL` environment variable
-4. Deploy
+3. Deploy (no environment variables required)
 
-The app is configured for Vercel deployment.
-
-### Database Setup
-
-Make sure to run migrations and seed before deploying:
-
-```bash
-npm run db:push
-npm run db:seed
-```
-
-Or set up a migration workflow if using Prisma migrations in production.
+The app is configured for Vercel deployment and requires zero configuration.
 
 ## Project Structure
 
@@ -73,32 +107,24 @@ Or set up a migration workflow if using Prisma migrations in production.
 ├── components/
 │   └── LoadingGift.tsx          # Three.js loading animation
 ├── lib/
-│   ├── db.ts                     # Prisma client
-│   └── entropy.ts                # Entropy algorithm implementation
-├── prisma/
-│   └── schema.prisma             # Database schema
-├── scripts/
-│   └── seed.ts                   # Database seeding script
+│   ├── entropy.ts                # Entropy algorithm implementation
+│   ├── fetchPool.ts              # Concurrency-limited API fetching
+│   └── fallbackCompliments.ts   # Embedded fallback compliments
 └── README.md
 ```
-
-## Environment Variables
-
-- `DATABASE_URL`: PostgreSQL connection string (required)
 
 ## Scripts
 
 - `npm run dev`: Start development server
 - `npm run build`: Build for production
 - `npm run start`: Start production server
-- `npm run db:generate`: Generate Prisma client
-- `npm run db:push`: Push schema to database
-- `npm run db:seed`: Seed database with compliments
+- `npm run lint`: Run ESLint
 
 ## Notes
 
 - The loading duration is 10 seconds (4 seconds with reduced motion)
 - Compliments are selected deterministically based on user interaction patterns
-- The app gracefully handles API failures with fallback compliments
+- The app gracefully handles API failures with embedded fallback compliments
 - Three.js performance is optimized with InstancedMesh and capped DPR at 2
-
+- No database required: all compliments come from the public API or embedded fallback
+- Deduplication works across sessions via localStorage (capped at 1000 hashes)

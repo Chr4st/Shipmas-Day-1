@@ -7,8 +7,9 @@ import { useState, useCallback, useEffect } from 'react'
 import LoadingGift from '@/components/LoadingGift'
 import {
   getUserKey,
-  getIssuedComplimentIds,
-  addIssuedComplimentId,
+  getSeenComplimentHashes,
+  addSeenComplimentHash,
+  getAvoidHashes,
 } from '@/lib/entropy'
 
 interface Compliment {
@@ -39,6 +40,7 @@ export default function Home() {
     async (signals: { pixelsMoved: number; clicks: number; idleMs: number }) => {
       try {
         const userKey = getUserKey()
+        const avoidHashes = getAvoidHashes(200) // Last 200 hashes
         const env = {
           w: window.innerWidth,
           h: window.innerHeight,
@@ -57,6 +59,7 @@ export default function Home() {
             idleMs: signals.idleMs,
             userKey,
             env,
+            avoidHashes,
           }),
         })
 
@@ -66,7 +69,7 @@ export default function Home() {
 
         const data = await response.json()
         setCompliment(data)
-        addIssuedComplimentId(data.id)
+        addSeenComplimentHash(data.id) // id is the hash
         setError(null)
       } catch (err) {
         console.error('Error fetching compliment:', err)
