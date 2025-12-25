@@ -104,12 +104,13 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
     const renderPass = new RenderPass(scene, camera)
     composer.addPass(renderPass)
 
-    const popArtPass = new ShaderPass(PopArtShader)
-    popArtPass.material.uniforms.uResolution.value.set(width, height)
-    popArtPass.material.uniforms.uPosterizeLevels.value = 10 // More levels = less harsh
-    popArtPass.material.uniforms.uHalftoneStrength.value = 0.06 // Reduced halftone
-    popArtPass.material.uniforms.uRGBShift.value = 0.1 // Reduced RGB shift to prevent flashing
-    composer.addPass(popArtPass)
+    // Pop-art shader disabled to prevent visual artifacts
+    // const popArtPass = new ShaderPass(PopArtShader)
+    // popArtPass.material.uniforms.uResolution.value.set(width, height)
+    // popArtPass.material.uniforms.uPosterizeLevels.value = 10
+    // popArtPass.material.uniforms.uHalftoneStrength.value = 0.06
+    // popArtPass.material.uniforms.uRGBShift.value = 0.1
+    // composer.addPass(popArtPass)
 
     const bloomPass = new UnrealBloomPass(
       new THREE.Vector2(width, height),
@@ -175,84 +176,7 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
     // Unique interactive elements
     // Cursor follow particles (smooth, no squares)
 
-    // 2. Gift opening particles on click
-    const giftBursts: Array<{
-      particles: THREE.Points
-      life: number
-      giftIndex: number
-    }> = []
-
-    function createGiftBurst(giftIndex: number, giftPosition: THREE.Vector3) {
-      const burstCount = 30
-      const geometry = new THREE.BufferGeometry()
-      const positions = new Float32Array(burstCount * 3)
-      const colors = new Float32Array(burstCount * 3)
-      const sizes = new Float32Array(burstCount)
-
-      const color = new THREE.Color()
-      const giftColors = [0xff6b6b, 0x4ecdc4, 0xffe66d, 0x95e1d3, 0xf38181]
-
-      for (let i = 0; i < burstCount; i++) {
-        const i3 = i * 3
-        const angle = (i / burstCount) * Math.PI * 2
-        const speed = 0.5 + Math.random() * 0.5
-        positions[i3] = giftPosition.x + Math.cos(angle) * speed
-        positions[i3 + 1] = giftPosition.y + Math.sin(angle) * speed + 0.2
-        positions[i3 + 2] = giftPosition.z + (Math.random() - 0.5) * 0.3
-
-        color.setHex(giftColors[giftIndex % giftColors.length])
-        colors[i3] = color.r
-        colors[i3 + 1] = color.g
-        colors[i3 + 2] = color.b
-
-        sizes[i] = 0.05 + Math.random() * 0.05
-      }
-
-      geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-      geometry.setAttribute('color', new THREE.BufferAttribute(colors, 3))
-      geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1))
-
-      const material = new THREE.ShaderMaterial({
-        uniforms: {
-          time: { value: 0 },
-        },
-        vertexShader: `
-          attribute float size;
-          attribute vec3 color;
-          varying vec3 vColor;
-          uniform float time;
-          void main() {
-            vColor = color;
-            vec3 pos = position;
-            pos.y -= time * 2.0;
-            vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
-            gl_Position = projectionMatrix * mvPosition;
-            gl_PointSize = size * (300.0 / -mvPosition.z) * (1.0 - time);
-          }
-        `,
-        fragmentShader: `
-          varying vec3 vColor;
-          void main() {
-            float dist = length(gl_PointCoord - vec2(0.5));
-            if (dist > 0.5) discard;
-            float alpha = 1.0 - smoothstep(0.0, 0.5, dist);
-            gl_FragColor = vec4(vColor, alpha * 0.8);
-          }
-        `,
-        transparent: true,
-        blending: THREE.AdditiveBlending,
-        vertexColors: true,
-      })
-
-      const burst = new THREE.Points(geometry, material)
-      scene.add(burst)
-
-      giftBursts.push({
-        particles: burst,
-        life: 0,
-        giftIndex,
-      })
-    }
+    // Gift bursts removed to prevent flashing squares
 
     // 3. Floating progress indicator (magical orb)
     const progressOrbGeometry = new THREE.SphereGeometry(0.15, 16, 16)
@@ -355,9 +279,10 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
         floor.update(camera)
       }
 
-      if (popArtPass?.material?.uniforms?.uTime) {
-        popArtPass.material.uniforms.uTime.value = elapsedTime
-      }
+      // Pop-art shader disabled
+      // if (popArtPass?.material?.uniforms?.uTime) {
+      //   popArtPass.material.uniforms.uTime.value = elapsedTime
+      // }
 
       // Interactive effects based on signals
       const turbulence = Math.min(signalsRef.current.pixelsMoved / 10000, 1)
@@ -371,19 +296,6 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       }
 
       // Cursor particles are updated in the mouse move handler
-
-      // Update gift bursts
-      giftBursts.forEach((burst, index) => {
-        burst.life += deltaTime
-        if (burst.life >= 1) {
-          scene.remove(burst.particles)
-          burst.particles.geometry.dispose()
-          ;(burst.particles.material as THREE.Material).dispose()
-          giftBursts.splice(index, 1)
-        } else {
-          ;(burst.particles.material as any).uniforms.time.value = burst.life
-        }
-      })
 
       // Update progress orb - smoother to prevent flashing
       const progress = Math.min(elapsed / loadingDuration, 1)
@@ -566,15 +478,11 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       if (!signalsRef.current.isTracking) return
       signalsRef.current.clicks++
 
-      // Create gift burst on click
+      // Simple gift bounce animation on click (no particles)
       if (gift && gift.gifts && gift.gifts.length > 0) {
         const giftIndex = Math.floor(Math.random() * gift.gifts.length)
         const giftMesh = gift.gifts[giftIndex]
         if (giftMesh) {
-          const worldPosition = new THREE.Vector3()
-          giftMesh.getWorldPosition(worldPosition)
-          createGiftBurst(giftIndex, worldPosition)
-
           // Animate gift bounce
           const originalY = giftMesh.position.y
           let bounceTime = 0
@@ -618,11 +526,12 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
       
       composer.setSize(newWidth, newHeight)
-      composer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+            composer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
 
-      if (popArtPass?.material?.uniforms?.uResolution) {
-        popArtPass.material.uniforms.uResolution.value.set(newWidth, newHeight)
-      }
+            // Pop-art shader disabled
+            // if (popArtPass?.material?.uniforms?.uResolution) {
+            //   popArtPass.material.uniforms.uResolution.value.set(newWidth, newHeight)
+            // }
     }
     window.addEventListener('resize', handleResize)
 
@@ -642,12 +551,6 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
         scene.remove(particle.mesh)
         particle.mesh.geometry.dispose()
         ;(particle.mesh.material as THREE.Material).dispose()
-      })
-
-      giftBursts.forEach((burst) => {
-        scene.remove(burst.particles)
-        burst.particles.geometry.dispose()
-        ;(burst.particles.material as THREE.Material).dispose()
       })
 
       treeLights.forEach((light) => scene.remove(light))
