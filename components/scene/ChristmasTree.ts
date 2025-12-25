@@ -10,7 +10,7 @@ class ChristmasTree {
     camera: THREE.Camera;
     renderer: THREE.WebGLRenderer;
     mixer: THREE.AnimationMixer | null;
-    tree: THREE.Group | null;
+    tree: THREE.Group;
     isAnimating: boolean;
     star: Star | null;
 
@@ -19,7 +19,7 @@ class ChristmasTree {
         this.camera = camera;
         this.renderer = renderer;
         this.mixer = null;
-        this.tree = null;
+        this.tree = new THREE.Group(); // Temporary placeholder
         this.isAnimating = false;
         this.star = null;
     }
@@ -38,7 +38,6 @@ class ChristmasTree {
                     this.tree = gltf.scene;
 
                     this.applyShaders(this.tree);
-
                     this.star = new Star(this.scene, this.tree);
 
                     this.mixer = new THREE.AnimationMixer(gltf.scene);
