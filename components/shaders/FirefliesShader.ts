@@ -24,11 +24,13 @@ export const FirefliesShader = {
     fragmentShader: /* glsl */ `
       void main() {
         float distanceToCenter = distance(gl_PointCoord, vec2(0.5));
-        // Softer, less "real" glow (mint accent)
-        float strength = 0.03 / max(distanceToCenter, 0.15) - 0.08;
-        strength = clamp(strength, 0.0, 0.35);
+        // Softer, less "real" glow (mint accent) - made more visible and stable
+        float strength = 0.1 / max(distanceToCenter, 0.1) - 0.2;
+        strength = clamp(strength, 0.0, 0.6); // Increased max opacity for visibility
 
-        gl_FragColor = vec4(0.72, 0.96, 0.84, strength);
+        // More stable, less flickering
+        vec3 color = vec3(0.72, 0.96, 0.84);
+        gl_FragColor = vec4(color, strength);
       }`,
   };
 

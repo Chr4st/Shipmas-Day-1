@@ -93,7 +93,7 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
     renderer.setSize(width, height)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     renderer.toneMapping = THREE.ACESFilmicToneMapping
-    renderer.toneMappingExposure = 1.35
+    renderer.toneMappingExposure = 1.0 // Reduced exposure to prevent flashing
     container.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
@@ -105,6 +105,9 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
 
     const popArtPass = new ShaderPass(PopArtShader)
     popArtPass.material.uniforms.uResolution.value.set(width, height)
+    popArtPass.material.uniforms.uPosterizeLevels.value = 10 // More levels = less harsh
+    popArtPass.material.uniforms.uHalftoneStrength.value = 0.06 // Reduced halftone
+    popArtPass.material.uniforms.uRGBShift.value = 0.1 // Reduced RGB shift to prevent flashing
     composer.addPass(popArtPass)
 
     const bloomPass = new UnrealBloomPass(
@@ -113,9 +116,9 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       0.4,
       0.85
     )
-    bloomPass.strength = 0.75
-    bloomPass.radius = 0.28
-    bloomPass.threshold = 0.78
+    bloomPass.strength = 0.3 // Reduced to prevent flashing
+    bloomPass.radius = 0.2 // Tighter radius
+    bloomPass.threshold = 0.9 // Higher threshold - only very bright things bloom
     composer.addPass(bloomPass)
 
     // Vignette Shader
@@ -430,26 +433,33 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
         }
       })
 
-      // Update progress orb
+      // Update progress orb - smoother to prevent flashing
       const progress = Math.min(elapsed / loadingDuration, 1)
-      progressOrb.position.y = 3 + Math.sin(elapsedTime * 2) * 0.2
-      progressOrb.rotation.y += deltaTime * 2
-      progressOrb.rotation.x = Math.sin(elapsedTime * 1.5) * 0.3
+      progressOrb.position.y = 3 + Math.sin(elapsedTime * 1) * 0.15 // Slower movement
+      progressOrb.rotation.y += deltaTime * 1.5 // Slower rotation
+      progressOrb.rotation.x = Math.sin(elapsedTime * 1) * 0.2 // Gentler tilt
+      // Smoother emissive intensity change
+      const targetEmissive = 0.4 + progress * 0.4
+      const currentEmissive = (progressOrbMaterial as THREE.MeshStandardMaterial).emissiveIntensity
       ;(progressOrbMaterial as THREE.MeshStandardMaterial).emissiveIntensity =
-        0.5 + progress * 0.5
-      progressOrb.scale.setScalar(0.8 + progress * 0.4)
+        currentEmissive + (targetEmissive - currentEmissive) * deltaTime * 2
+      progressOrb.scale.setScalar(0.8 + progress * 0.3) // Less dramatic scaling
 
       // Dynamic tree lights (colorful point lights that shift based on interactions)
+      // Made smoother to prevent flashing
       treeLights.forEach((light, i) => {
         const colorIndex =
-          (Math.floor(elapsedTime * 0.5) + i) % lightColorPalette.length
+          (Math.floor(elapsedTime * 0.2) + i) % lightColorPalette.length // Slower color change
         const baseColor = lightColorPalette[colorIndex]
         const clickColor = lightColorPalette[
           (colorIndex + Math.floor(clickIntensity * lightColorPalette.length)) %
             lightColorPalette.length
         ]
-        light.color.lerpColors(baseColor, clickColor, clickIntensity * 0.5)
-        light.intensity = 0.5 + Math.sin(elapsedTime * 3 + i) * 0.3 + clickIntensity * 0.4
+        light.color.lerpColors(baseColor, clickColor, clickIntensity * 0.3)
+        // Smoother intensity changes to prevent flashing
+        const baseIntensity = 0.4
+        const pulse = Math.sin(elapsedTime * 1.5 + i) * 0.15 // Slower, gentler pulse
+        light.intensity = baseIntensity + pulse + clickIntensity * 0.3
       })
 
       // Controls update

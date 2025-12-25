@@ -33,7 +33,7 @@ class Fireflies {
                 uniforms: {
                     uTime: { value: 0 },
                     uPixelRatio: { value: Math.min(window.devicePixelRatio, 2) },
-                    uSize: { value: 100 }
+                    uSize: { value: 150 } // Increased size for better visibility
                 },
                 vertexShader: FirefliesShader.vertexShader,
                 fragmentShader: FirefliesShader.fragmentShader,
