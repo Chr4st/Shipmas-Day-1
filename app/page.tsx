@@ -72,10 +72,13 @@ export default function Home() {
         })
 
         if (!response.ok) {
-          throw new Error('Failed to fetch compliment')
+          const errorText = await response.text()
+          console.error('API error response:', errorText)
+          throw new Error(`Failed to fetch compliment: ${response.status}`)
         }
 
         const data = await response.json()
+        console.log('Received compliment:', data)
         setCompliment(data)
         addSeenComplimentHash(data.id) // id is the hash
         setError(null)
