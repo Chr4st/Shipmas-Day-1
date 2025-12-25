@@ -134,14 +134,14 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
     const gltfLoader = new GLTFLoader()
     gltfLoader.load(
       '/models/christmas-tree/christmas_tree_2.glb',
-      (gltf) => {
+      (gltf: any) => {
         gltf.scene.scale.set(0.8, 0.8, 0.8)
         gltf.scene.position.set(0, 0, 0)
         scene.add(gltf.scene)
         tree = gltf.scene
       },
       undefined,
-      (error) => {
+      (error: any) => {
         console.error('Error loading tree model:', error)
         // Fallback: create a simple tree
         const treeGroup = new THREE.Group()
