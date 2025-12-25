@@ -37,6 +37,21 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
   const [progress, setProgress] = useState(0)
   const [isOpening, setIsOpening] = useState(false)
 
+  // Reset signals when component mounts or key changes
+  useEffect(() => {
+    signalsRef.current = {
+      pixelsMoved: 0,
+      clicks: 0,
+      idleMs: 0,
+      lastMoveTime: Date.now(),
+      lastX: 0,
+      lastY: 0,
+      isTracking: true,
+    }
+    setProgress(0)
+    setIsOpening(false)
+  }, []) // Reset on mount
+
   // Three.js setup
   useEffect(() => {
     if (!containerRef.current) return
@@ -260,6 +275,19 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
         signalsRef.current.isTracking = false
         setIsOpening(true)
 
+        // Final idle time calculation
+        const finalIdleMs = Date.now() - signalsRef.current.lastMoveTime
+        if (finalIdleMs > 100) {
+          signalsRef.current.idleMs += finalIdleMs
+        }
+
+        // Log signals for debugging
+        console.log('Loading complete, signals:', {
+          pixelsMoved: signalsRef.current.pixelsMoved,
+          clicks: signalsRef.current.clicks,
+          idleMs: signalsRef.current.idleMs,
+        })
+
         // Wait for opening animation, then call onComplete
         setTimeout(() => {
           onComplete({
@@ -309,7 +337,7 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       createRipple(e.clientX, e.clientY)
     }
 
-    // Idle time tracking
+    // Idle time tracking - increment by 100ms each interval if idle
     const idleCheckInterval = setInterval(() => {
       if (!signalsRef.current.isTracking) return
       const now = Date.now()

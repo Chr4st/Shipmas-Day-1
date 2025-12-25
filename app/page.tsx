@@ -22,6 +22,7 @@ export default function Home() {
   const [compliment, setCompliment] = useState<Compliment | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [reducedMotion, setReducedMotion] = useState(false)
+  const [loadingKey, setLoadingKey] = useState(0) // Force remount on retry
 
   // Check for reduced motion preference
   useEffect(() => {
@@ -39,6 +40,9 @@ export default function Home() {
   const fetchCompliment = useCallback(
     async (signals: { pixelsMoved: number; clicks: number; idleMs: number }) => {
       try {
+        // Log signals for debugging
+        console.log('Fetching compliment with signals:', signals)
+        
         const userKey = getUserKey()
         const avoidHashes = getAvoidHashes(200) // Last 200 hashes
         const env = {
@@ -48,19 +52,23 @@ export default function Home() {
           tzOffset: new Date().getTimezoneOffset(),
         }
 
+        const requestBody = {
+          pixelsMoved: signals.pixelsMoved,
+          clicks: signals.clicks,
+          idleMs: signals.idleMs,
+          userKey,
+          env,
+          avoidHashes,
+        }
+        
+        console.log('Request body:', { ...requestBody, avoidHashes: avoidHashes.length })
+
         const response = await fetch('/api/compliment', {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
           },
-          body: JSON.stringify({
-            pixelsMoved: signals.pixelsMoved,
-            clicks: signals.clicks,
-            idleMs: signals.idleMs,
-            userKey,
-            env,
-            avoidHashes,
-          }),
+          body: JSON.stringify(requestBody),
         })
 
         if (!response.ok) {
@@ -90,12 +98,17 @@ export default function Home() {
     setIsLoading(true)
     setCompliment(null)
     setError(null)
+    setLoadingKey((prev) => prev + 1) // Force remount of LoadingGift to reset signals
   }, [])
 
   return (
     <main className="relative w-full h-screen overflow-hidden bg-[#0a0a0a]">
       {isLoading ? (
-        <LoadingGift onComplete={fetchCompliment} reducedMotion={reducedMotion} />
+        <LoadingGift
+          key={loadingKey}
+          onComplete={fetchCompliment}
+          reducedMotion={reducedMotion}
+        />
       ) : (
         <div className="flex flex-col items-center justify-center h-full px-8">
           <div
