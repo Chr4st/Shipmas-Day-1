@@ -128,6 +128,7 @@ export async function POST(request: NextRequest) {
 
     while (!selectedCompliment && rounds < maxRounds) {
       rounds++
+      console.log(`Attempting API fetch round ${rounds}/${maxRounds}`)
 
       try {
         // Fetch batch of compliments
@@ -137,6 +138,8 @@ export async function POST(request: NextRequest) {
           concurrency,
           fetchCompliment
         )
+
+        console.log(`Round ${rounds}: Fetched ${fetchedTexts.length} compliments from API`)
 
         if (fetchedTexts.length === 0) {
           console.warn(`Round ${rounds}: No compliments fetched from API`)
@@ -187,51 +190,90 @@ export async function POST(request: NextRequest) {
 
     // Fallback to embedded list if API failed or all were avoided
     if (!selectedCompliment) {
-      console.log('Falling back to embedded compliments list')
-      try {
-        const result = selectComplimentFromCandidates(
-          signals,
-          userKey,
-          env,
-          fallbackCompliments,
-          avoidHashesSet,
-          sessionNonce
-        )
-        
-        // If fallback selection is also avoided, try advancing PRNG
-        if (avoidHashesSet.has(result.complimentHash)) {
-          console.warn('Fallback selection was avoided, advancing PRNG')
-          // Use a different nonce to get a different selection
-          const advancedNonce = `${sessionNonce}-advance`
-          const advancedResult = selectComplimentFromCandidates(
+      console.log('Falling back to embedded compliments list', {
+        fallbackCount: fallbackCompliments.length,
+        avoidHashesCount: avoidHashesSet.size,
+      })
+      
+      // Filter out avoided compliments from fallback list
+      const availableFallbacks = fallbackCompliments.filter((text) => {
+        const normalized = normalizeCompliment(text)
+        const hash = hashString(normalized)
+        return !avoidHashesSet.has(hash)
+      })
+      
+      console.log('Available fallbacks after filtering:', availableFallbacks.length)
+      
+      if (availableFallbacks.length === 0) {
+        // All fallbacks have been used, reset by using all
+        console.log('All fallbacks used, selecting from all')
+        const allFallbacks = fallbackCompliments.map(normalizeCompliment)
+        try {
+          const result = selectComplimentFromCandidates(
             signals,
             userKey,
             env,
-            fallbackCompliments,
-            avoidHashesSet,
-            advancedNonce
+            allFallbacks,
+            new Set(), // Don't avoid any - user has seen them all
+            sessionNonce
           )
-          selectedCompliment = {
-            complimentText: advancedResult.complimentText,
-            complimentHash: advancedResult.complimentHash,
-          }
-        } else {
           selectedCompliment = {
             complimentText: result.complimentText,
             complimentHash: result.complimentHash,
           }
+        } catch (error) {
+          console.error('Error selecting from all fallbacks:', error)
+          // Pick a random one as last resort
+          const randomIndex = Math.floor(Math.random() * allFallbacks.length)
+          const randomText = allFallbacks[randomIndex]
+          selectedCompliment = {
+            complimentText: randomText,
+            complimentHash: hashString(randomText),
+          }
         }
-      } catch (fallbackError) {
-        console.error('Fallback selection error:', fallbackError)
-        // Even fallback failed, return a default
-        const defaultText =
-          'You are doing great, and your persistence is admirable.'
-        selectedCompliment = {
-          complimentText: defaultText,
-          complimentHash: hashString(defaultText),
+      } else {
+        try {
+          const result = selectComplimentFromCandidates(
+            signals,
+            userKey,
+            env,
+            availableFallbacks,
+            avoidHashesSet,
+            sessionNonce
+          )
+          selectedCompliment = {
+            complimentText: result.complimentText,
+            complimentHash: result.complimentHash,
+          }
+          console.log('Selected from fallbacks:', result.complimentText.substring(0, 50))
+        } catch (fallbackError) {
+          console.error('Fallback selection error:', fallbackError)
+          // Pick a random available one as last resort
+          const randomIndex = Math.floor(Math.random() * availableFallbacks.length)
+          const randomText = availableFallbacks[randomIndex]
+          selectedCompliment = {
+            complimentText: randomText,
+            complimentHash: hashString(randomText),
+          }
         }
       }
     }
+
+    if (!selectedCompliment) {
+      // This should never happen, but just in case
+      console.error('No compliment selected after all attempts')
+      const randomIndex = Math.floor(Math.random() * fallbackCompliments.length)
+      const randomText = fallbackCompliments[randomIndex]
+      selectedCompliment = {
+        complimentText: randomText,
+        complimentHash: hashString(normalizeCompliment(randomText)),
+      }
+    }
+
+    console.log('Returning compliment:', {
+      hash: selectedCompliment.complimentHash.substring(0, 16) + '...',
+      textPreview: selectedCompliment.complimentText.substring(0, 50) + '...',
+    })
 
     return NextResponse.json({
       id: selectedCompliment.complimentHash,
@@ -239,11 +281,12 @@ export async function POST(request: NextRequest) {
     })
   } catch (error) {
     console.error('Error selecting compliment:', error)
-    // Return a safe fallback
-    const fallbackText = 'You are doing great, and your persistence is admirable.'
+    // Return a random fallback instead of always the same one
+    const randomIndex = Math.floor(Math.random() * fallbackCompliments.length)
+    const randomText = fallbackCompliments[randomIndex]
     return NextResponse.json({
-      id: hashString(fallbackText),
-      text: fallbackText,
+      id: hashString(normalizeCompliment(randomText)),
+      text: randomText,
     })
   }
 }
