@@ -560,9 +560,9 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       if (falseEnding && !showRevealSignal) {
         // Gradually reduce all motion
         controls.autoRotateSpeed = Math.max(0.05, controls.autoRotateSpeed * 0.95)
-        if (particles) {
+        if (particles && particles.particleSystem) {
           // Slow down particles
-          const positions = particles.particleSystem?.geometry.attributes.position.array as Float32Array
+          const positions = particles.particleSystem.geometry.attributes.position.array as Float32Array
           if (positions) {
             for (let i = 0; i < positions.length / 3; i++) {
               positions[i * 3 + 1] -= deltaTime * 0.1 // Much slower fall
