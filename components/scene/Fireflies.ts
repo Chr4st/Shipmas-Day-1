@@ -14,16 +14,17 @@ class Fireflies {
     load(): Promise<void> {
         return new Promise((resolve) => {
             const firefliesGeometry = new THREE.BufferGeometry();
-            const firefliesCount = 30;
+            const firefliesCount = 50; // More fireflies for starry background
             const positionArray = new Float32Array(firefliesCount * 3);
             const scaleArray = new Float32Array(firefliesCount);
 
             for(let i = 0; i < firefliesCount; i++) {
-                positionArray[i * 3 + 0] = (Math.random() - 0.5) * 10;
-                positionArray[i * 3 + 1] = Math.random() * 4 + 0.5;
-                positionArray[i * 3 + 2] = (Math.random() - 0.5) * 10;
+                // Spread stars across wider area for background
+                positionArray[i * 3 + 0] = (Math.random() - 0.5) * 30;
+                positionArray[i * 3 + 1] = Math.random() * 15 + 2;
+                positionArray[i * 3 + 2] = (Math.random() - 0.5) * 30;
 
-                scaleArray[i] = Math.random();
+                scaleArray[i] = 0.5 + Math.random() * 0.5; // More consistent sizes
             }
 
             firefliesGeometry.setAttribute('position', new THREE.BufferAttribute(positionArray, 3));

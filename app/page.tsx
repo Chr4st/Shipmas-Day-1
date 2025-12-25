@@ -31,9 +31,9 @@ export default function Home() {
   const [reducedMotion, setReducedMotion] = useState(false)
   const [loadingKey, setLoadingKey] = useState(0) // Force remount on retry
   const [userSignals, setUserSignals] = useState<UserSignals | null>(null)
-  const [showReveal, setShowReveal] = useState(false) // Abstract reveal signal state
   const [showCompliment, setShowCompliment] = useState(false) // Delayed compliment reveal
   const [showStats, setShowStats] = useState(false) // Statistics display
+  const [cursorPos, setCursorPos] = useState({ x: 0, y: 0 })
 
   // Check for reduced motion preference
   useEffect(() => {
@@ -52,9 +52,6 @@ export default function Home() {
     async (signals: { pixelsMoved: number; clicks: number; idleMs: number }) => {
       // Store signals for later display
       setUserSignals(signals)
-
-      // Show abstract reveal signal first
-      setShowReveal(true)
 
       try {
         const userKey = getUserKey()
@@ -89,29 +86,23 @@ export default function Home() {
 
         const data = await response.json()
 
-        // Delay compliment reveal after abstract signal
-        setTimeout(() => {
-          setShowReveal(false)
-          setCompliment(data)
-          addSeenComplimentHash(data.id)
-          setShowCompliment(true)
-          setError(null)
+        // Show compliment immediately
+        setCompliment(data)
+        addSeenComplimentHash(data.id)
+        setShowCompliment(true)
+        setError(null)
 
-          // Show stats after compliment appears
-          setTimeout(() => {
-            setShowStats(true)
-          }, 1500)
-        }, 1200) // Wait for reveal signal to complete
+        // Show stats after compliment appears
+        setTimeout(() => {
+          setShowStats(true)
+        }, 1500)
       } catch (err) {
         console.error('Error fetching compliment:', err)
-        setTimeout(() => {
-          setShowReveal(false)
-          setCompliment({
-            id: 'fallback',
-            text: 'You are doing great, and your persistence is admirable.',
-          })
-          setShowCompliment(true)
-        }, 1200)
+        setCompliment({
+          id: 'fallback',
+          text: 'You are doing great, and your persistence is admirable.',
+        })
+        setShowCompliment(true)
       } finally {
         setIsLoading(false)
       }
@@ -124,14 +115,50 @@ export default function Home() {
     setCompliment(null)
     setError(null)
     setUserSignals(null)
-    setShowReveal(false)
     setShowCompliment(false)
     setShowStats(false)
     setLoadingKey((prev) => prev + 1) // Force remount of LoadingGift to reset signals
   }, [])
 
+  // Cursor follow effect
+  useEffect(() => {
+    const handleMouseMove = (e: MouseEvent) => {
+      setCursorPos({ x: e.clientX, y: e.clientY })
+    }
+    window.addEventListener('mousemove', handleMouseMove)
+    return () => window.removeEventListener('mousemove', handleMouseMove)
+  }, [])
+
   return (
     <main className="relative w-full h-screen overflow-hidden bg-[#0a0a0a]">
+      {/* Cursor follow effects */}
+      {!isLoading && (
+        <>
+          <div
+            className="fixed pointer-events-none z-50 mix-blend-difference"
+            style={{
+              left: cursorPos.x,
+              top: cursorPos.y,
+              transform: 'translate(-50%, -50%)',
+              transition: 'transform 0.1s ease-out',
+            }}
+          >
+            <div className="w-4 h-4 rounded-full bg-white/80 blur-sm" />
+          </div>
+          <div
+            className="fixed pointer-events-none z-50"
+            style={{
+              left: cursorPos.x,
+              top: cursorPos.y,
+              transform: 'translate(-50%, -50%)',
+              transition: 'transform 0.15s ease-out',
+            }}
+          >
+            <div className="w-2 h-2 rounded-full bg-white/60" />
+          </div>
+        </>
+      )}
+
       {isLoading ? (
         <LoadingGift
           key={loadingKey}
@@ -140,25 +167,10 @@ export default function Home() {
         />
       ) : (
         <div className="flex flex-col items-center justify-center h-full px-8">
-          {/* Abstract reveal signal */}
-          {showReveal && !showCompliment && (
-            <div className="absolute inset-0 flex items-center justify-center">
-              <div
-                className="w-32 h-32 rounded-full border-2 border-white/30"
-                style={{
-                  animation: reducedMotion
-                    ? 'none'
-                    : 'pulse 1.2s ease-in-out',
-                  transform: 'scale(0)',
-                }}
-              />
-            </div>
-          )}
-
           {/* Compliment reveal */}
           {showCompliment && compliment && (
             <div
-              className="max-w-2xl text-center space-y-6"
+              className="max-w-3xl text-center space-y-8"
               style={{
                 opacity: showCompliment ? 1 : 0,
                 transition: 'opacity 1s ease-in',
@@ -168,33 +180,51 @@ export default function Home() {
                 {compliment.text}
               </h1>
 
-              {/* Behavior reflection - subtle, no explanation */}
+              {/* Personal Key */}
+              <div className="mt-8 pt-6 border-t border-white/20">
+                <p className="text-sm text-white/50 mb-2">Your personal key</p>
+                <p className="text-lg font-mono text-white/80 tracking-wider break-all px-4">
+                  {compliment.id}
+                </p>
+                <p className="text-xs text-white/40 mt-2 italic">
+                  This is your personal key now.
+                </p>
+              </div>
+
+              {/* Behavior reflection */}
               {userSignals && (
-                <p className="text-sm text-white/40 font-light italic mt-6">
+                <p className="text-base text-white/50 font-light italic mt-4">
                   {generateBehaviorReflection(userSignals)}
                 </p>
               )}
 
-              {/* Statistics display */}
+              {/* Statistics display - bigger and more prominent */}
               {showStats && userSignals && (
-                <div className="mt-12 pt-8 border-t border-white/10">
-                  <div className="grid grid-cols-3 gap-6 text-xs text-white/30">
-                    <div>
-                      <div className="text-white/50 mb-1">Distance</div>
-                      <div className="text-white/70 font-mono">
-                        {Math.round(userSignals.pixelsMoved).toLocaleString()} px
+                <div className="mt-16 pt-12 border-t border-white/20">
+                  <h2 className="text-2xl font-light text-white mb-8">Your journey</h2>
+                  <div className="grid grid-cols-3 gap-12">
+                    <div className="text-center">
+                      <div className="text-4xl md:text-5xl font-mono text-white mb-2">
+                        {Math.round(userSignals.pixelsMoved).toLocaleString()}
+                      </div>
+                      <div className="text-lg text-white/60 uppercase tracking-wider">
+                        Pixels
                       </div>
                     </div>
-                    <div>
-                      <div className="text-white/50 mb-1">Clicks</div>
-                      <div className="text-white/70 font-mono">
+                    <div className="text-center">
+                      <div className="text-4xl md:text-5xl font-mono text-white mb-2">
                         {userSignals.clicks}
                       </div>
+                      <div className="text-lg text-white/60 uppercase tracking-wider">
+                        Clicks
+                      </div>
                     </div>
-                    <div>
-                      <div className="text-white/50 mb-1">Time</div>
-                      <div className="text-white/70 font-mono">
+                    <div className="text-center">
+                      <div className="text-4xl md:text-5xl font-mono text-white mb-2">
                         {Math.round(userSignals.idleMs / 1000)}s
+                      </div>
+                      <div className="text-lg text-white/60 uppercase tracking-wider">
+                        Time
                       </div>
                     </div>
                   </div>
@@ -203,7 +233,7 @@ export default function Home() {
 
               <button
                 onClick={handleTryAgain}
-                className="mt-12 px-8 py-3 bg-white/10 hover:bg-white/20 text-white rounded-full border border-white/20 transition-all duration-300 text-sm font-medium backdrop-blur-sm"
+                className="mt-16 px-8 py-3 bg-white/10 hover:bg-white/20 text-white rounded-full border border-white/20 transition-all duration-300 text-sm font-medium backdrop-blur-sm"
               >
                 Try again
               </button>
@@ -211,23 +241,6 @@ export default function Home() {
           )}
         </div>
       )}
-
-      <style jsx>{`
-        @keyframes pulse {
-          0% {
-            transform: scale(0);
-            opacity: 1;
-          }
-          50% {
-            transform: scale(1.2);
-            opacity: 0.6;
-          }
-          100% {
-            transform: scale(1.5);
-            opacity: 0;
-          }
-        }
-      `}</style>
     </main>
   )
 }
