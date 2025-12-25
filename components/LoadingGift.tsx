@@ -47,6 +47,8 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
 
   const [progress, setProgress] = useState(0)
   const [isOpening, setIsOpening] = useState(false)
+  const [falseEnding, setFalseEnding] = useState(false) // False ending state
+  const [showRevealSignal, setShowRevealSignal] = useState(false) // Abstract reveal signal
 
   // Reset signals when component mounts
   useEffect(() => {
@@ -309,6 +311,10 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
     progressOrb.position.set(-3, 3, 0)
     scene.add(progressOrb)
 
+    // Abstract reveal signal state
+    let revealSignalTime = 0
+    let isRevealSignalActive = false
+
     // 4. Dynamic tree light colors based on interactions
     const treeLights: THREE.PointLight[] = []
     const lightColorPalette = [
@@ -465,6 +471,41 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       // Controls update
       controls.update()
 
+      // Abstract reveal signal - particles snapping into symmetry
+      if (showRevealSignal && isRevealSignalActive) {
+        revealSignalTime += deltaTime
+        const signalProgress = Math.min(revealSignalTime / 1.2, 1)
+
+        // Particles snap into a ring/torus formation (symmetry)
+        if (particles && particles.particleSystem && signalProgress < 0.8) {
+          const positions = particles.particleSystem.geometry.attributes.position.array as Float32Array
+          const targetRadius = 2.5
+          const snapSpeed = 5 * (1 - signalProgress * 0.5) // Faster at start
+          
+          for (let i = 0; i < Math.min(positions.length / 3, 500); i++) {
+            const i3 = i * 3
+            const angle = (i / 500) * Math.PI * 2
+            const targetX = Math.cos(angle) * targetRadius
+            const targetZ = Math.sin(angle) * targetRadius
+            const targetY = 2 + Math.sin(angle * 3) * 0.5
+
+            positions[i3] += (targetX - positions[i3]) * deltaTime * snapSpeed
+            positions[i3 + 1] += (targetY - positions[i3 + 1]) * deltaTime * snapSpeed
+            positions[i3 + 2] += (targetZ - positions[i3 + 2]) * deltaTime * snapSpeed
+          }
+          particles.particleSystem.geometry.attributes.position.needsUpdate = true
+        }
+
+        // Pulse effect on progress orb
+        const pulseScale = 1 + Math.sin(signalProgress * Math.PI * 4) * 0.15
+        progressOrb.scale.setScalar(pulseScale)
+        ;(progressOrbMaterial as THREE.MeshStandardMaterial).emissiveIntensity =
+          0.8 + Math.sin(signalProgress * Math.PI * 6) * 0.4
+
+        // Move orb to center during reveal
+        progressOrb.position.lerp(new THREE.Vector3(0, 2, 0), deltaTime * 2)
+      }
+
       // Opening animation
       if (isOpening) {
         const openingProgress = Math.min((now - (startTime + loadingDuration)) / 1500, 1)
@@ -484,29 +525,51 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       // Render
       composer.render()
 
-      // Check if loading is complete
-      if (currentProgress >= 1 && !isOpening && signalsRef.current.isTracking) {
+      // Check if loading is complete - FALSE ENDING
+      if (currentProgress >= 1 && !falseEnding && !isOpening && signalsRef.current.isTracking) {
         signalsRef.current.isTracking = false
-        setIsOpening(true)
+        setFalseEnding(true) // Enter false ending state
 
         const finalIdleMs = Date.now() - signalsRef.current.lastMoveTime
         if (finalIdleMs > 100) {
           signalsRef.current.idleMs += finalIdleMs
         }
 
-        console.log('Loading complete, signals:', {
-          pixelsMoved: signalsRef.current.pixelsMoved,
-          clicks: signalsRef.current.clicks,
-          idleMs: signalsRef.current.idleMs,
-        })
+        // Everything calms - slow down all motion
+        // This happens automatically as turbulence/crystallization values stabilize
 
+        // SUSPENSION: Wait 750ms (the crucial pause)
         setTimeout(() => {
-          onComplete({
-            pixelsMoved: signalsRef.current.pixelsMoved,
-            clicks: signalsRef.current.clicks,
-            idleMs: signalsRef.current.idleMs,
-          })
-        }, 1500)
+          setShowRevealSignal(true) // Show abstract reveal signal
+          isRevealSignalActive = true
+          revealSignalTime = 0
+          
+          // After reveal signal, call onComplete
+          setTimeout(() => {
+            setIsOpening(true) // Transition to opening
+            onComplete({
+              pixelsMoved: signalsRef.current.pixelsMoved,
+              clicks: signalsRef.current.clicks,
+              idleMs: signalsRef.current.idleMs,
+            })
+          }, 1200) // Reveal signal duration
+        }, 750) // Suspension delay
+      }
+
+      // During false ending - calm everything
+      if (falseEnding && !showRevealSignal) {
+        // Gradually reduce all motion
+        controls.autoRotateSpeed = Math.max(0.05, controls.autoRotateSpeed * 0.95)
+        if (particles) {
+          // Slow down particles
+          const positions = particles.particleSystem?.geometry.attributes.position.array as Float32Array
+          if (positions) {
+            for (let i = 0; i < positions.length / 3; i++) {
+              positions[i * 3 + 1] -= deltaTime * 0.1 // Much slower fall
+            }
+            particles.particleSystem.geometry.attributes.position.needsUpdate = true
+          }
+        }
       }
 
       animationFrameRef.current = requestAnimationFrame(animate)

@@ -11,10 +11,17 @@ import {
   addSeenComplimentHash,
   getAvoidHashes,
 } from '@/lib/entropy'
+import { generateBehaviorReflection } from '@/lib/behaviorReflection'
 
 interface Compliment {
   id: string
   text: string
+}
+
+interface UserSignals {
+  pixelsMoved: number
+  clicks: number
+  idleMs: number
 }
 
 export default function Home() {
@@ -23,6 +30,10 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null)
   const [reducedMotion, setReducedMotion] = useState(false)
   const [loadingKey, setLoadingKey] = useState(0) // Force remount on retry
+  const [userSignals, setUserSignals] = useState<UserSignals | null>(null)
+  const [showReveal, setShowReveal] = useState(false) // Abstract reveal signal state
+  const [showCompliment, setShowCompliment] = useState(false) // Delayed compliment reveal
+  const [showStats, setShowStats] = useState(false) // Statistics display
 
   // Check for reduced motion preference
   useEffect(() => {
@@ -39,12 +50,15 @@ export default function Home() {
 
   const fetchCompliment = useCallback(
     async (signals: { pixelsMoved: number; clicks: number; idleMs: number }) => {
+      // Store signals for later display
+      setUserSignals(signals)
+
+      // Show abstract reveal signal first
+      setShowReveal(true)
+
       try {
-        // Log signals for debugging
-        console.log('Fetching compliment with signals:', signals)
-        
         const userKey = getUserKey()
-        const avoidHashes = getAvoidHashes(200) // Last 200 hashes
+        const avoidHashes = getAvoidHashes(200)
         const env = {
           w: window.innerWidth,
           h: window.innerHeight,
@@ -60,8 +74,6 @@ export default function Home() {
           env,
           avoidHashes,
         }
-        
-        console.log('Request body:', { ...requestBody, avoidHashes: avoidHashes.length })
 
         const response = await fetch('/api/compliment', {
           method: 'POST',
@@ -72,24 +84,34 @@ export default function Home() {
         })
 
         if (!response.ok) {
-          const errorText = await response.text()
-          console.error('API error response:', errorText)
           throw new Error(`Failed to fetch compliment: ${response.status}`)
         }
 
         const data = await response.json()
-        console.log('Received compliment:', data)
-        setCompliment(data)
-        addSeenComplimentHash(data.id) // id is the hash
-        setError(null)
+
+        // Delay compliment reveal after abstract signal
+        setTimeout(() => {
+          setShowReveal(false)
+          setCompliment(data)
+          addSeenComplimentHash(data.id)
+          setShowCompliment(true)
+          setError(null)
+
+          // Show stats after compliment appears
+          setTimeout(() => {
+            setShowStats(true)
+          }, 1500)
+        }, 1200) // Wait for reveal signal to complete
       } catch (err) {
         console.error('Error fetching compliment:', err)
-        // Fallback compliment
-        setCompliment({
-          id: 'fallback',
-          text: 'You are doing great, and your persistence is admirable.',
-        })
-        setError('Unable to load a new compliment, but here is one for you.')
+        setTimeout(() => {
+          setShowReveal(false)
+          setCompliment({
+            id: 'fallback',
+            text: 'You are doing great, and your persistence is admirable.',
+          })
+          setShowCompliment(true)
+        }, 1200)
       } finally {
         setIsLoading(false)
       }
@@ -101,6 +123,10 @@ export default function Home() {
     setIsLoading(true)
     setCompliment(null)
     setError(null)
+    setUserSignals(null)
+    setShowReveal(false)
+    setShowCompliment(false)
+    setShowStats(false)
     setLoadingKey((prev) => prev + 1) // Force remount of LoadingGift to reset signals
   }, [])
 
@@ -114,55 +140,92 @@ export default function Home() {
         />
       ) : (
         <div className="flex flex-col items-center justify-center h-full px-8">
-          <div
-            className="max-w-2xl text-center space-y-8 animate-fade-in"
-            style={{
-              animation: reducedMotion
-                ? 'none'
-                : 'fadeIn 1s ease-out, slideUp 1s ease-out',
-            }}
-          >
-            {error && (
-              <p className="text-sm text-gray-500 mb-4" role="alert">
-                {error}
-              </p>
-            )}
-            <h1 className="text-4xl md:text-6xl font-light text-white leading-tight">
-              {compliment?.text}
-            </h1>
-            <button
-              onClick={handleTryAgain}
-              className="mt-12 px-8 py-3 bg-white/10 hover:bg-white/20 text-white rounded-full border border-white/20 transition-all duration-300 text-sm font-medium backdrop-blur-sm"
+          {/* Abstract reveal signal */}
+          {showReveal && !showCompliment && (
+            <div className="absolute inset-0 flex items-center justify-center">
+              <div
+                className="w-32 h-32 rounded-full border-2 border-white/30"
+                style={{
+                  animation: reducedMotion
+                    ? 'none'
+                    : 'pulse 1.2s ease-in-out',
+                  transform: 'scale(0)',
+                }}
+              />
+            </div>
+          )}
+
+          {/* Compliment reveal */}
+          {showCompliment && compliment && (
+            <div
+              className="max-w-2xl text-center space-y-6"
+              style={{
+                opacity: showCompliment ? 1 : 0,
+                transition: 'opacity 1s ease-in',
+              }}
             >
-              Try again
-            </button>
-          </div>
+              <h1 className="text-4xl md:text-6xl font-light text-white leading-tight">
+                {compliment.text}
+              </h1>
+
+              {/* Behavior reflection - subtle, no explanation */}
+              {userSignals && (
+                <p className="text-sm text-white/40 font-light italic mt-6">
+                  {generateBehaviorReflection(userSignals)}
+                </p>
+              )}
+
+              {/* Statistics display */}
+              {showStats && userSignals && (
+                <div className="mt-12 pt-8 border-t border-white/10">
+                  <div className="grid grid-cols-3 gap-6 text-xs text-white/30">
+                    <div>
+                      <div className="text-white/50 mb-1">Distance</div>
+                      <div className="text-white/70 font-mono">
+                        {Math.round(userSignals.pixelsMoved).toLocaleString()} px
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-white/50 mb-1">Clicks</div>
+                      <div className="text-white/70 font-mono">
+                        {userSignals.clicks}
+                      </div>
+                    </div>
+                    <div>
+                      <div className="text-white/50 mb-1">Time</div>
+                      <div className="text-white/70 font-mono">
+                        {Math.round(userSignals.idleMs / 1000)}s
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <button
+                onClick={handleTryAgain}
+                className="mt-12 px-8 py-3 bg-white/10 hover:bg-white/20 text-white rounded-full border border-white/20 transition-all duration-300 text-sm font-medium backdrop-blur-sm"
+              >
+                Try again
+              </button>
+            </div>
+          )}
         </div>
       )}
 
       <style jsx>{`
-        @keyframes fadeIn {
-          from {
-            opacity: 0;
-          }
-          to {
+        @keyframes pulse {
+          0% {
+            transform: scale(0);
             opacity: 1;
           }
-        }
-
-        @keyframes slideUp {
-          from {
-            transform: translateY(20px);
+          50% {
+            transform: scale(1.2);
+            opacity: 0.6;
+          }
+          100% {
+            transform: scale(1.5);
             opacity: 0;
           }
-          to {
-            transform: translateY(0);
-            opacity: 1;
-          }
-        }
-
-        .animate-fade-in {
-          animation: fadeIn 1s ease-out, slideUp 1s ease-out;
         }
       `}</style>
     </main>
