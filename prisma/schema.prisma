@@ -1,0 +1,39 @@
+// Using Supabase Postgres via Prisma for type safety and migrations
+// Supabase provides a generous free tier and fast setup
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Compliment {
+  id        String   @id @default(uuid())
+  text      String   @db.Text
+  tags      String[] @default([])
+  rarity    Int      @default(1) // 1 = common, 2 = uncommon, 3 = rare
+  createdAt DateTime @default(now()) @map("created_at")
+  
+  issued    Issued[]
+  
+  @@map("compliments")
+}
+
+model Issued {
+  id             String    @id @default(uuid())
+  userKey        String    @map("user_key")
+  complimentId   String    @map("compliment_id")
+  issuedAt       DateTime  @default(now()) @map("issued_at")
+  fingerprintHash String?  @map("fingerprint_hash") @db.Text
+  
+  compliment     Compliment @relation(fields: [complimentId], references: [id], onDelete: Cascade)
+  
+  @@unique([userKey, complimentId])
+  @@index([userKey])
+  @@index([complimentId])
+  @@map("issued")
+}
+
