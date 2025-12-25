@@ -16,6 +16,7 @@ import { generateBehaviorReflection } from '@/lib/behaviorReflection'
 interface Compliment {
   id: string
   text: string
+  reflection?: string
 }
 
 interface UserSignals {
@@ -87,7 +88,11 @@ export default function Home() {
         const data = await response.json()
 
         // Show compliment immediately
-        setCompliment(data)
+        setCompliment({
+          id: data.id,
+          text: data.text,
+          reflection: data.reflection || generateBehaviorReflection(signals), // Use API reflection or fallback
+        })
         addSeenComplimentHash(data.id)
         setShowCompliment(true)
         setError(null)

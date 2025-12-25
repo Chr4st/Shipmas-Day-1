@@ -1,66 +1,22 @@
-// API endpoint for compliment selection
-// Validates inputs, computes entropy-based selection, enforces dedupe via avoidHashes
-// Uses public Compliments API: https://compliments-api.vercel.app/random
+// API endpoint for compliment generation
+// Uses stable entropy key + template composition for resonant, unique compliments
+// No external API dependency - generates from templates using continuous weights
 
 import { NextRequest, NextResponse } from 'next/server'
 import {
-  selectComplimentFromCandidates,
   type UserSignals,
   type EnvData,
+  computeEntropyKey,
 } from '@/lib/entropy'
-import { fetchPool } from '@/lib/fetchPool'
-import { fallbackCompliments } from '@/lib/fallbackCompliments'
+import {
+  generateCompliment,
+  generateBehaviorReflection,
+} from '@/lib/complimentGenerator'
 import crypto from 'crypto'
 
 // Hash a string using SHA-256
 function hashString(text: string): string {
   return crypto.createHash('sha256').update(text).digest('hex')
-}
-
-// Fetch a single compliment from the public API
-async function fetchCompliment(): Promise<string> {
-  try {
-    // Create abort controller for timeout
-    const controller = new AbortController()
-    const timeoutId = setTimeout(() => controller.abort(), 5000)
-
-    const response = await fetch('https://compliments-api.vercel.app/random', {
-      headers: {
-        'Accept': 'application/json',
-      },
-      signal: controller.signal,
-    })
-
-    clearTimeout(timeoutId)
-
-    if (!response.ok) {
-      throw new Error(`API returned ${response.status}: ${response.statusText}`)
-    }
-
-    const data = await response.json()
-    // Handle different possible response formats
-    const text = data.compliment || data.text || data.message || data.complimentText || ''
-    
-    if (!text || typeof text !== 'string') {
-      throw new Error('Invalid API response format')
-    }
-    
-    return text.trim()
-  } catch (error) {
-    // Re-throw with more context
-    if (error instanceof Error) {
-      if (error.name === 'AbortError') {
-        throw new Error('Request timeout')
-      }
-      throw new Error(`Failed to fetch compliment: ${error.message}`)
-    }
-    throw error
-  }
-}
-
-// Normalize compliment text
-function normalizeCompliment(text: string): string {
-  return text.trim().replace(/\s+/g, ' ')
 }
 
 export async function POST(request: NextRequest) {
@@ -113,180 +69,82 @@ export async function POST(request: NextRequest) {
       idleMs: clampedIdleMs,
     }
 
-    const avoidHashesSet = new Set(avoidHashes)
-
-    // Generate a session nonce for this request to ensure uniqueness
-    // This ensures "Try again" gets a different selection even with same signals
+    // Generate a session nonce for "Try again" uniqueness
     const sessionNonce = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`
 
-    // Try fetching from public API (up to 3 rounds)
-    let selectedCompliment: { complimentText: string; complimentHash: string } | null = null
-    let rounds = 0
-    const maxRounds = 3
-    const batchSize = 18
-    const concurrency = 5
+    // 1. Compute stable entropy key
+    const entropyKey = computeEntropyKey(signals, userKey, env, sessionNonce)
 
-    while (!selectedCompliment && rounds < maxRounds) {
-      rounds++
-      console.log(`Attempting API fetch round ${rounds}/${maxRounds}`)
+    // 2. Generate compliment from templates (deterministic from key)
+    let complimentText: string
+    let complimentHash: string
+    let attempts = 0
+    const maxAttempts = 10
 
-      try {
-        // Fetch batch of compliments
-        const fetchedTexts = await fetchPool(
-          'https://compliments-api.vercel.app/random',
-          batchSize,
-          concurrency,
-          fetchCompliment
-        )
+    // Ensure uniqueness: if generated compliment is in avoidHashes, regenerate with different nonce
+    do {
+      const currentNonce = attempts > 0 
+        ? `${sessionNonce}-retry-${attempts}`
+        : sessionNonce
+      
+      const currentKey = computeEntropyKey(signals, userKey, env, currentNonce)
+      complimentText = generateCompliment(
+        currentKey,
+        clampedPixelsMoved,
+        clampedClicks,
+        clampedIdleMs
+      )
+      complimentHash = hashString(complimentText)
+      attempts++
+    } while (avoidHashes.includes(complimentHash) && attempts < maxAttempts)
 
-        console.log(`Round ${rounds}: Fetched ${fetchedTexts.length} compliments from API`)
-
-        if (fetchedTexts.length === 0) {
-          console.warn(`Round ${rounds}: No compliments fetched from API`)
-          continue // Try next round
-        }
-
-        // Normalize and dedupe within batch
-        const normalized = fetchedTexts
-          .map(normalizeCompliment)
-          .filter((text) => text.length > 0)
-
-        if (normalized.length === 0) {
-          console.warn(`Round ${rounds}: All fetched compliments were empty after normalization`)
-          continue // Try next round
-        }
-
-        // Try to select from this batch with session nonce for uniqueness
-        try {
-          const result = selectComplimentFromCandidates(
-            signals,
-            userKey,
-            env,
-            normalized,
-            avoidHashesSet,
-            sessionNonce
-          )
-
-          // Double-check the selected compliment is not in avoidHashes
-          if (!avoidHashesSet.has(result.complimentHash)) {
-            selectedCompliment = {
-              complimentText: result.complimentText,
-              complimentHash: result.complimentHash,
-            }
-            break
-          } else {
-            console.warn(`Round ${rounds}: Selected compliment was in avoidHashes, trying next round`)
-          }
-        } catch (selectError) {
-          console.error(`Round ${rounds}: Selection error:`, selectError)
-          continue
-        }
-      } catch (fetchError) {
-        // Fetch failed, try next round or fallback
-        console.error(`Round ${rounds}: Fetch error:`, fetchError)
-        continue
-      }
+    // If still collided after max attempts, use a different approach
+    if (avoidHashes.includes(complimentHash) && attempts >= maxAttempts) {
+      // Add extra entropy to force different generation
+      const fallbackNonce = `${sessionNonce}-fallback-${Date.now()}`
+      const fallbackKey = computeEntropyKey(signals, userKey, env, fallbackNonce)
+      complimentText = generateCompliment(
+        fallbackKey,
+        clampedPixelsMoved + Math.random() * 0.1, // Tiny variation
+        clampedClicks,
+        clampedIdleMs
+      )
+      complimentHash = hashString(complimentText)
     }
 
-    // Fallback to embedded list if API failed or all were avoided
-    if (!selectedCompliment) {
-      console.log('Falling back to embedded compliments list', {
-        fallbackCount: fallbackCompliments.length,
-        avoidHashesCount: avoidHashesSet.size,
-      })
-      
-      // Filter out avoided compliments from fallback list
-      const availableFallbacks = fallbackCompliments.filter((text) => {
-        const normalized = normalizeCompliment(text)
-        const hash = hashString(normalized)
-        return !avoidHashesSet.has(hash)
-      })
-      
-      console.log('Available fallbacks after filtering:', availableFallbacks.length)
-      
-      if (availableFallbacks.length === 0) {
-        // All fallbacks have been used, reset by using all
-        console.log('All fallbacks used, selecting from all')
-        const allFallbacks = fallbackCompliments.map(normalizeCompliment)
-        try {
-          const result = selectComplimentFromCandidates(
-            signals,
-            userKey,
-            env,
-            allFallbacks,
-            new Set(), // Don't avoid any - user has seen them all
-            sessionNonce
-          )
-          selectedCompliment = {
-            complimentText: result.complimentText,
-            complimentHash: result.complimentHash,
-          }
-        } catch (error) {
-          console.error('Error selecting from all fallbacks:', error)
-          // Pick a random one as last resort
-          const randomIndex = Math.floor(Math.random() * allFallbacks.length)
-          const randomText = allFallbacks[randomIndex]
-          selectedCompliment = {
-            complimentText: randomText,
-            complimentHash: hashString(randomText),
-          }
-        }
-      } else {
-        try {
-          const result = selectComplimentFromCandidates(
-            signals,
-            userKey,
-            env,
-            availableFallbacks,
-            avoidHashesSet,
-            sessionNonce
-          )
-          selectedCompliment = {
-            complimentText: result.complimentText,
-            complimentHash: result.complimentHash,
-          }
-          console.log('Selected from fallbacks:', result.complimentText.substring(0, 50))
-        } catch (fallbackError) {
-          console.error('Fallback selection error:', fallbackError)
-          // Pick a random available one as last resort
-          const randomIndex = Math.floor(Math.random() * availableFallbacks.length)
-          const randomText = availableFallbacks[randomIndex]
-          selectedCompliment = {
-            complimentText: randomText,
-            complimentHash: hashString(randomText),
-          }
-        }
-      }
-    }
+    // Generate behavior reflection
+    const behaviorReflection = generateBehaviorReflection(
+      entropyKey,
+      clampedPixelsMoved,
+      clampedClicks,
+      clampedIdleMs
+    )
 
-    if (!selectedCompliment) {
-      // This should never happen, but just in case
-      console.error('No compliment selected after all attempts')
-      const randomIndex = Math.floor(Math.random() * fallbackCompliments.length)
-      const randomText = fallbackCompliments[randomIndex]
-      selectedCompliment = {
-        complimentText: randomText,
-        complimentHash: hashString(normalizeCompliment(randomText)),
-      }
-    }
-
-    console.log('Returning compliment:', {
-      hash: selectedCompliment.complimentHash.substring(0, 16) + '...',
-      textPreview: selectedCompliment.complimentText.substring(0, 50) + '...',
+    console.log('Generated compliment:', {
+      hash: complimentHash.substring(0, 16) + '...',
+      textPreview: complimentText.substring(0, 50) + '...',
+      reflection: behaviorReflection,
     })
 
     return NextResponse.json({
-      id: selectedCompliment.complimentHash,
-      text: selectedCompliment.complimentText,
+      id: complimentHash,
+      text: complimentText,
+      reflection: behaviorReflection, // Include behavior reflection
     })
   } catch (error) {
-    console.error('Error selecting compliment:', error)
-    // Return a random fallback instead of always the same one
-    const randomIndex = Math.floor(Math.random() * fallbackCompliments.length)
-    const randomText = fallbackCompliments[randomIndex]
+    console.error('Error generating compliment:', error)
+    // Fallback: generate a simple compliment
+    const fallbackKey = computeEntropyKey(
+      { pixelsMoved: 0, clicks: 0, idleMs: 0 },
+      'fallback',
+      { w: 1920, h: 1080, dpr: 1, tzOffset: 0 },
+      Date.now().toString()
+    )
+    const fallbackText = generateCompliment(fallbackKey, 0, 0, 0)
     return NextResponse.json({
-      id: hashString(normalizeCompliment(randomText)),
-      text: randomText,
+      id: hashString(fallbackText),
+      text: fallbackText,
+      reflection: 'Opened just now.',
     })
   }
 }

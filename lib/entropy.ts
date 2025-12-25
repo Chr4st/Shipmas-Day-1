@@ -28,7 +28,7 @@ export interface UserSignals {
 
 // Deterministic PRNG using SplitMix64
 // Seed is a 64-bit integer derived from hash
-class SplitMix64 {
+export class SplitMix64 {
   private state: bigint
 
   constructor(seed: bigint) {
@@ -48,6 +48,10 @@ class SplitMix64 {
 
   nextInt(max: number): number {
     return Math.floor(this.next() * max)
+  }
+
+  nextDouble(): number {
+    return this.next()
   }
 }
 
@@ -83,13 +87,24 @@ function buildFingerprint(
 }
 
 // Hash fingerprint using SHA-256
-function hashFingerprint(fingerprint: string): string {
+export function hashFingerprint(fingerprint: string): string {
   return crypto.createHash('sha256').update(fingerprint).digest('hex')
 }
 
 // Convert hash to seed (first 16 hex chars = 64 bits)
-function hashToSeed(hash: string): bigint {
+export function hashToSeed(hash: string): bigint {
   return BigInt('0x' + hash.substring(0, 16))
+}
+
+// Build fingerprint and return hash (for external use)
+export function computeEntropyKey(
+  signals: UserSignals,
+  userKey: string,
+  env: EnvData,
+  sessionNonce?: string
+): string {
+  const fingerprint = buildFingerprint(signals, userKey, env, sessionNonce)
+  return hashFingerprint(fingerprint)
 }
 
 // Select compliment using deterministic PRNG
