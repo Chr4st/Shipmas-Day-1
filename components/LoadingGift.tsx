@@ -587,6 +587,42 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       if (distance > 5) {
         addSparkleToTrail(e.clientX, e.clientY)
       }
+
+      // Create cursor follow particles
+      if (Math.abs(e.clientX - lastCursorX) > 3 || Math.abs(e.clientY - lastCursorY) > 3) {
+        const worldX = ((e.clientX / width) * 2 - 1) * 4
+        const worldY = (-(e.clientY / height) * 2 + 1) * 3
+        
+        const geometry = new THREE.SphereGeometry(0.02, 6, 6)
+        const material = new THREE.MeshBasicMaterial({
+          color: new THREE.Color().setHSL(0.5, 0.8, 0.7),
+          transparent: true,
+          opacity: 0.6,
+        })
+        const particle = new THREE.Mesh(geometry, material)
+        particle.position.set(worldX, worldY, 0)
+        scene.add(particle)
+        
+        cursorParticles.push({
+          mesh: particle,
+          life: 1.0,
+          targetX: worldX,
+          targetY: worldY,
+        })
+        
+        // Limit particles
+        if (cursorParticles.length > 15) {
+          const old = cursorParticles.shift()
+          if (old) {
+            scene.remove(old.mesh)
+            old.mesh.geometry.dispose()
+            ;(old.mesh.material as THREE.Material).dispose()
+          }
+        }
+        
+        lastCursorX = e.clientX
+        lastCursorY = e.clientY
+      }
     }
 
     const handleClick = (e: MouseEvent) => {
