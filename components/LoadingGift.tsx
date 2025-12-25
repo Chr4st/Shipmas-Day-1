@@ -708,7 +708,8 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
         renderer.dispose()
       }
     }
-  }, [onComplete, reducedMotion, isOpening])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [onComplete, reducedMotion])
 
   return (
     <div
