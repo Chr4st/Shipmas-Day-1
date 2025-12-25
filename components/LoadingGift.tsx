@@ -173,50 +173,7 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
     const fireflies = new Fireflies(scene)
 
     // Unique interactive elements
-    // 1. Magical sparkle trail that follows mouse movement
-    const sparkleTrail: Array<{
-      mesh: THREE.Mesh
-      life: number
-      velocity: THREE.Vector3
-    }> = []
-    const maxTrailLength = 20
-
-    function addSparkleToTrail(x: number, y: number) {
-      const geometry = new THREE.SphereGeometry(0.03, 6, 6)
-      const material = new THREE.MeshBasicMaterial({
-        color: new THREE.Color().setHSL((Math.random() * 0.3 + 0.5) % 1, 1, 0.6),
-        transparent: true,
-        opacity: 0.8,
-      })
-      const sparkle = new THREE.Mesh(geometry, material)
-
-      // Convert screen to world coords
-      const worldX = ((x / width) * 2 - 1) * 4
-      const worldY = (-(y / height) * 2 + 1) * 3
-      sparkle.position.set(worldX, worldY, 0)
-
-      sparkleTrail.push({
-        mesh: sparkle,
-        life: 1.0,
-        velocity: new THREE.Vector3(
-          (Math.random() - 0.5) * 0.1,
-          (Math.random() - 0.5) * 0.1,
-          (Math.random() - 0.5) * 0.1
-        ),
-      })
-
-      scene.add(sparkle)
-
-      // Limit trail length
-      if (sparkleTrail.length > maxTrailLength) {
-        const old = sparkleTrail.shift()
-        if (old) {
-          scene.remove(old.mesh)
-          old.mesh.geometry.dispose()
-          ;(old.mesh.material as THREE.Material).dispose()
-        }
-      }
-    }
+    // Cursor follow particles (smooth, no squares)
 
     // 2. Gift opening particles on click
     const giftBursts: Array<{
@@ -413,23 +370,7 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
         christmasTree.tree.rotation.x = Math.cos(elapsedTime * 1.5) * turbulence * 0.05
       }
 
-      // Update sparkle trail
-      sparkleTrail.forEach((sparkle, index) => {
-        sparkle.life -= deltaTime * 2
-        if (sparkle.life <= 0) {
-          scene.remove(sparkle.mesh)
-          sparkle.mesh.geometry.dispose()
-          ;(sparkle.mesh.material as THREE.Material).dispose()
-          sparkleTrail.splice(index, 1)
-        } else {
-          sparkle.mesh.position.add(
-            sparkle.velocity.clone().multiplyScalar(deltaTime * 2)
-          )
-          ;(sparkle.mesh.material as THREE.MeshBasicMaterial).opacity =
-            sparkle.life * 0.8
-          sparkle.mesh.scale.setScalar(0.5 + sparkle.life * 0.5)
-        }
-      })
+      // Cursor particles are updated in the mouse move handler
 
       // Update gift bursts
       giftBursts.forEach((burst, index) => {
@@ -583,21 +524,17 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       signalsRef.current.lastY = e.clientY
       signalsRef.current.lastMoveTime = now
 
-      // Add sparkle to trail (throttled)
-      if (distance > 5) {
-        addSparkleToTrail(e.clientX, e.clientY)
-      }
-
-      // Create cursor follow particles
-      if (Math.abs(e.clientX - lastCursorX) > 3 || Math.abs(e.clientY - lastCursorY) > 3) {
+      // Create smooth cursor follow particles (no squares, only smooth spheres)
+      if (Math.abs(e.clientX - lastCursorX) > 2 || Math.abs(e.clientY - lastCursorY) > 2) {
         const worldX = ((e.clientX / width) * 2 - 1) * 4
         const worldY = (-(e.clientY / height) * 2 + 1) * 3
         
-        const geometry = new THREE.SphereGeometry(0.02, 6, 6)
+        // Use higher detail sphere geometry for smooth appearance
+        const geometry = new THREE.SphereGeometry(0.015, 12, 12)
         const material = new THREE.MeshBasicMaterial({
-          color: new THREE.Color().setHSL(0.5, 0.8, 0.7),
+          color: new THREE.Color().setHSL(0.55, 0.9, 0.75),
           transparent: true,
-          opacity: 0.6,
+          opacity: 0.7,
         })
         const particle = new THREE.Mesh(geometry, material)
         particle.position.set(worldX, worldY, 0)
@@ -610,8 +547,8 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
           targetY: worldY,
         })
         
-        // Limit particles
-        if (cursorParticles.length > 15) {
+        // Limit particles for performance
+        if (cursorParticles.length > 12) {
           const old = cursorParticles.shift()
           if (old) {
             scene.remove(old.mesh)
@@ -701,10 +638,10 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       }
 
       // Cleanup unique elements
-      sparkleTrail.forEach((sparkle) => {
-        scene.remove(sparkle.mesh)
-        sparkle.mesh.geometry.dispose()
-        ;(sparkle.mesh.material as THREE.Material).dispose()
+      cursorParticles.forEach((particle) => {
+        scene.remove(particle.mesh)
+        particle.mesh.geometry.dispose()
+        ;(particle.mesh.material as THREE.Material).dispose()
       })
 
       giftBursts.forEach((burst) => {
