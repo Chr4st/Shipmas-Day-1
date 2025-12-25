@@ -1,11 +1,10 @@
 'use client'
 
-// Three.js loading animation component
-// Creates a gift-wrapping/opening experience with particle effects
+// Three.js Christmas tree loading animation
+// Creates a festive 3D tree that responds to user interactions
 // Tracks user interactions: mouse movement, clicks, and idle time
-// Optimized for performance with InstancedMesh and capped DPR
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 
 interface LoadingGiftProps {
@@ -37,7 +36,7 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
   const [progress, setProgress] = useState(0)
   const [isOpening, setIsOpening] = useState(false)
 
-  // Reset signals when component mounts or key changes
+  // Reset signals when component mounts
   useEffect(() => {
     signalsRef.current = {
       pixelsMoved: 0,
@@ -66,151 +65,199 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
     sceneRef.current = scene
 
     // Camera
-    const camera = new THREE.PerspectiveCamera(75, width / height, 0.1, 1000)
-    camera.position.z = 5
+    const camera = new THREE.PerspectiveCamera(50, width / height, 0.1, 1000)
+    camera.position.set(0, 2, 8)
+    camera.lookAt(0, 0, 0)
 
-    // Renderer with performance optimizations
+    // Renderer
     const renderer = new THREE.WebGLRenderer({
       antialias: true,
       alpha: false,
       powerPreference: 'high-performance',
     })
     renderer.setSize(width, height)
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2)) // Cap DPR at 2
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
     container.appendChild(renderer.domElement)
     rendererRef.current = renderer
 
-    // Particle system using InstancedMesh for performance
-    const particleCount = reducedMotion ? 500 : 2000
-    const geometry = new THREE.BufferGeometry()
-    const positions = new Float32Array(particleCount * 3)
-    const velocities = new Float32Array(particleCount * 3)
-    const sizes = new Float32Array(particleCount)
+    // Ambient light
+    const ambientLight = new THREE.AmbientLight(0x404040, 0.3)
+    scene.add(ambientLight)
 
-    for (let i = 0; i < particleCount; i++) {
-      const i3 = i * 3
-      // Start particles in a sphere
-      const radius = 2 + Math.random() * 1
-      const theta = Math.random() * Math.PI * 2
-      const phi = Math.acos(Math.random() * 2 - 1)
-      positions[i3] = radius * Math.sin(phi) * Math.cos(theta)
-      positions[i3 + 1] = radius * Math.sin(phi) * Math.sin(theta)
-      positions[i3 + 2] = radius * Math.cos(phi)
-
-      velocities[i3] = (Math.random() - 0.5) * 0.02
-      velocities[i3 + 1] = (Math.random() - 0.5) * 0.02
-      velocities[i3 + 2] = (Math.random() - 0.5) * 0.02
-
-      sizes[i] = Math.random() * 0.05 + 0.02
+    // Point lights for tree (will twinkle)
+    const treeLights: THREE.PointLight[] = []
+    const lightColors = [0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xff00ff, 0x00ffff]
+    for (let i = 0; i < 12; i++) {
+      const light = new THREE.PointLight(
+        lightColors[i % lightColors.length],
+        1,
+        5
+      )
+      treeLights.push(light)
+      scene.add(light)
     }
 
-    geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3))
-    geometry.setAttribute('size', new THREE.BufferAttribute(sizes, 1))
-
-    const material = new THREE.ShaderMaterial({
-      uniforms: {
-        time: { value: 0 },
-        turbulence: { value: 0 },
-        crystallization: { value: 0 },
-        opening: { value: 0 },
-      },
-      vertexShader: `
-        attribute float size;
-        uniform float time;
-        uniform float turbulence;
-        uniform float crystallization;
-        uniform float opening;
-        
-        varying vec3 vColor;
-        
-        void main() {
-          vec3 pos = position;
-          
-          // Base rotation
-          float angle = time * 0.5;
-          mat2 rot = mat2(cos(angle), -sin(angle), sin(angle), cos(angle));
-          pos.xy = rot * pos.xy;
-          
-          // Turbulence from mouse movement
-          pos += vec3(
-            sin(time * 2.0 + pos.y * 3.0) * turbulence * 0.3,
-            cos(time * 1.5 + pos.x * 3.0) * turbulence * 0.3,
-            sin(time * 1.8 + pos.z * 3.0) * turbulence * 0.2
-          );
-          
-          // Crystallization from idle (form into ring/torus)
-          float ringRadius = 2.5;
-          float ringAngle = atan(pos.y, pos.x);
-          float ringDist = length(pos.xy) - ringRadius;
-          vec3 ringPos = vec3(
-            cos(ringAngle) * ringRadius,
-            sin(ringAngle) * ringRadius,
-            pos.z
-          );
-          pos = mix(pos, ringPos, crystallization * 0.7);
-          
-          // Opening animation (iris expand)
-          float dist = length(pos);
-          float expand = opening * 3.0;
-          pos = normalize(pos) * (dist + expand);
-          
-          vec4 mvPosition = modelViewMatrix * vec4(pos, 1.0);
-          gl_Position = projectionMatrix * mvPosition;
-          gl_PointSize = size * (300.0 / -mvPosition.z) * (1.0 + opening * 0.5);
-          
-          // Color gradient
-          float t = (pos.z + 2.0) / 4.0;
-          vColor = mix(
-            vec3(0.9, 0.3, 0.5), // Pink
-            vec3(0.3, 0.7, 0.9), // Blue
-            t
-          );
-          vColor += vec3(opening * 0.3); // Brighten on opening
-        }
-      `,
-      fragmentShader: `
-        varying vec3 vColor;
-        
-        void main() {
-          float dist = length(gl_PointCoord - vec2(0.5));
-          if (dist > 0.5) discard;
-          
-          float alpha = 1.0 - smoothstep(0.0, 0.5, dist);
-          gl_FragColor = vec4(vColor, alpha * 0.8);
-        }
-      `,
-      transparent: true,
-      blending: THREE.AdditiveBlending,
+    // Christmas tree (layered cones)
+    const treeGroup = new THREE.Group()
+    const treeMaterial = new THREE.MeshStandardMaterial({
+      color: 0x0d5f2d,
+      roughness: 0.8,
+      metalness: 0.2,
     })
 
-    const particles = new THREE.Points(geometry, material)
-    scene.add(particles)
+    // Create tree layers
+    const layers = [
+      { radius: 0.3, height: 0.8, y: -1.5 },
+      { radius: 0.5, height: 1.0, y: -0.5 },
+      { radius: 0.7, height: 1.2, y: 0.8 },
+      { radius: 0.5, height: 0.8, y: 2.2 },
+    ]
 
-    // Ripple effects for clicks
-    const ripples: Array<{ mesh: THREE.Mesh; startTime: number }> = []
+    layers.forEach((layer, i) => {
+      const geometry = new THREE.ConeGeometry(layer.radius, layer.height, 8)
+      const mesh = new THREE.Mesh(geometry, treeMaterial)
+      mesh.position.y = layer.y
+      mesh.castShadow = true
+      treeGroup.add(mesh)
+    })
 
-    function createRipple(x: number, y: number) {
-      const geometry = new THREE.RingGeometry(0.1, 0.2, 32)
-      const material = new THREE.MeshBasicMaterial({
-        color: 0xffffff,
-        transparent: true,
-        opacity: 0.6,
-        side: THREE.DoubleSide,
+    // Tree trunk
+    const trunkGeometry = new THREE.CylinderGeometry(0.1, 0.1, 0.8, 8)
+    const trunkMaterial = new THREE.MeshStandardMaterial({ color: 0x8b4513 })
+    const trunk = new THREE.Mesh(trunkGeometry, trunkMaterial)
+    trunk.position.y = -2.0
+    treeGroup.add(trunk)
+
+    // Star on top
+    const starGeometry = new THREE.ConeGeometry(0.15, 0.4, 5)
+    const starMaterial = new THREE.MeshStandardMaterial({
+      color: 0xffd700,
+      emissive: 0xffd700,
+      emissiveIntensity: 0.5,
+    })
+    const star = new THREE.Mesh(starGeometry, starMaterial)
+    star.position.y = 2.8
+    star.rotation.z = Math.PI / 2
+    treeGroup.add(star)
+
+    scene.add(treeGroup)
+
+    // Ornaments (particles that float and settle on tree)
+    const ornamentCount = reducedMotion ? 30 : 80
+    const ornaments: Array<{
+      mesh: THREE.Mesh
+      targetPosition: THREE.Vector3
+      velocity: THREE.Vector3
+      color: number
+    }> = []
+
+    const ornamentColors = [0xff0000, 0x00ff00, 0x0000ff, 0xffff00, 0xff00ff, 0xffffff]
+
+    for (let i = 0; i < ornamentCount; i++) {
+      const size = 0.08 + Math.random() * 0.05
+      const geometry = new THREE.SphereGeometry(size, 8, 8)
+      const color = ornamentColors[Math.floor(Math.random() * ornamentColors.length)]
+      const material = new THREE.MeshStandardMaterial({
+        color,
+        emissive: color,
+        emissiveIntensity: 0.3,
+        metalness: 0.8,
+        roughness: 0.2,
       })
-      const mesh = new THREE.Mesh(geometry, material)
 
-      // Convert screen coords to world coords (approximate)
-      const worldX = ((x / width) * 2 - 1) * 3
-      const worldY = (-(y / height) * 2 + 1) * 2.5
-      mesh.position.set(worldX, worldY, 0)
+      const ornament = new THREE.Mesh(geometry, material)
+      
+      // Start ornaments floating around
+      const angle = (i / ornamentCount) * Math.PI * 2
+      const radius = 3 + Math.random() * 2
+      ornament.position.set(
+        Math.cos(angle) * radius,
+        -1 + Math.random() * 4,
+        Math.sin(angle) * radius
+      )
 
-      scene.add(mesh)
-      ripples.push({ mesh, startTime: Date.now() })
+      // Target position on tree
+      const layerIndex = Math.floor(Math.random() * layers.length)
+      const layer = layers[layerIndex]
+      const branchAngle = Math.random() * Math.PI * 2
+      const branchRadius = (Math.random() * 0.7 + 0.1) * layer.radius
+      const targetY = layer.y + (Math.random() - 0.5) * layer.height * 0.6
+
+      ornaments.push({
+        mesh: ornament,
+        targetPosition: new THREE.Vector3(
+          Math.cos(branchAngle) * branchRadius,
+          targetY,
+          Math.sin(branchAngle) * branchRadius
+        ),
+        velocity: new THREE.Vector3(
+          (Math.random() - 0.5) * 0.02,
+          (Math.random() - 0.5) * 0.02,
+          (Math.random() - 0.5) * 0.02
+        ),
+        color,
+      })
+
+      scene.add(ornament)
+    }
+
+    // Position tree lights on branches
+    layers.forEach((layer, layerIdx) => {
+      const lightsPerLayer = 3
+      for (let i = 0; i < lightsPerLayer; i++) {
+        const lightIdx = layerIdx * lightsPerLayer + i
+        if (lightIdx < treeLights.length) {
+          const angle = (i / lightsPerLayer) * Math.PI * 2
+          const radius = layer.radius * 0.7
+          treeLights[lightIdx].position.set(
+            Math.cos(angle) * radius,
+            layer.y + layer.height * 0.3,
+            Math.sin(angle) * radius
+          )
+        }
+      }
+    })
+
+    // Sparkles for clicks
+    const sparkles: Array<{
+      mesh: THREE.Mesh
+      velocity: THREE.Vector3
+      life: number
+    }> = []
+
+    function createSparkles(x: number, y: number) {
+      const sparkleCount = 15
+      for (let i = 0; i < sparkleCount; i++) {
+        const geometry = new THREE.SphereGeometry(0.05, 6, 6)
+        const material = new THREE.MeshBasicMaterial({
+          color: 0xffffff,
+          transparent: true,
+        })
+        const sparkle = new THREE.Mesh(geometry, material)
+
+        // Convert screen coords to world coords
+        const worldX = ((x / width) * 2 - 1) * 4
+        const worldY = (-(y / height) * 2 + 1) * 3
+
+        sparkle.position.set(worldX, worldY, 0)
+
+        sparkles.push({
+          mesh: sparkle,
+          velocity: new THREE.Vector3(
+            (Math.random() - 0.5) * 0.3,
+            (Math.random() - 0.5) * 0.3,
+            (Math.random() - 0.5) * 0.3
+          ),
+          life: 1.0,
+        })
+
+        scene.add(sparkle)
+      }
     }
 
     // Animation loop
     let lastTime = Date.now()
-    const loadingDuration = reducedMotion ? 4000 : 10000 // 4s or 10s
+    const loadingDuration = reducedMotion ? 4000 : 10000
     const startTime = Date.now()
 
     function animate() {
@@ -220,53 +267,99 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
 
       const elapsed = now - startTime
       const currentProgress = Math.min(elapsed / loadingDuration, 1)
-
-      // Update progress
       setProgress(currentProgress)
 
-      // Update shader uniforms
-      material.uniforms.time.value = elapsed / 1000
-      material.uniforms.turbulence.value = Math.min(
-        signalsRef.current.pixelsMoved / 10000,
-        1
-      )
-      material.uniforms.crystallization.value = Math.min(
-        signalsRef.current.idleMs / 5000,
-        1
-      )
-      material.uniforms.opening.value = isOpening
-        ? Math.min((now - (startTime + loadingDuration)) / 1000, 1)
-        : 0
+      const time = elapsed / 1000
 
-      // Update ripples
-      ripples.forEach((ripple, index) => {
-        const age = (now - ripple.startTime) / 1000
-        if (age > 1) {
-          scene.remove(ripple.mesh)
-          ripple.mesh.geometry.dispose()
-          ;(ripple.mesh.material as THREE.Material).dispose()
-          ripples.splice(index, 1)
+      // Update tree sway based on turbulence (mouse movement)
+      const turbulence = Math.min(signalsRef.current.pixelsMoved / 10000, 1)
+      const swayAmount = turbulence * 0.1
+      treeGroup.rotation.z = Math.sin(time * 2) * swayAmount
+      treeGroup.rotation.x = Math.cos(time * 1.5) * swayAmount * 0.5
+
+      // Update star rotation
+      star.rotation.y += deltaTime * 2
+      star.rotation.z = Math.sin(time * 3) * 0.2
+
+      // Update tree lights (twinkling)
+      const crystallization = Math.min(signalsRef.current.idleMs / 5000, 1)
+      treeLights.forEach((light, i) => {
+        const twinkle = Math.sin(time * 3 + i) * 0.5 + 0.5
+        light.intensity = 0.5 + twinkle * 1.5 * (1 + crystallization * 0.5)
+        const colorShift = Math.sin(time * 2 + i * 0.5)
+        light.color.setHSL((colorShift * 0.1 + i * 0.1) % 1, 1, 0.5)
+      })
+
+      // Update ornaments
+      ornaments.forEach((ornament) => {
+        const pos = ornament.mesh.position
+        const target = ornament.targetPosition
+
+        // Calculate crystallization effect (settle onto tree)
+        const settleAmount = crystallization * 0.7
+
+        // Apply turbulence (swirl around)
+        const swirlAmount = turbulence * 0.5
+        const swirlX = Math.sin(time * 2 + pos.y * 2) * swirlAmount
+        const swirlZ = Math.cos(time * 1.5 + pos.y * 2) * swirlAmount
+
+        // Interpolate towards target position
+        const targetX = target.x * settleAmount + swirlX
+        const targetY = target.y * settleAmount + (pos.y * (1 - settleAmount))
+        const targetZ = target.z * settleAmount + swirlZ
+
+        // Smooth movement towards target
+        pos.x += (targetX - pos.x) * deltaTime * 2 + ornament.velocity.x * (1 - settleAmount)
+        pos.y += (targetY - pos.y) * deltaTime * 2 + ornament.velocity.y * (1 - settleAmount)
+        pos.z += (targetZ - pos.z) * deltaTime * 2 + ornament.velocity.z * (1 - settleAmount)
+
+        // Add rotation
+        ornament.mesh.rotation.y += deltaTime * 2
+        ornament.mesh.rotation.x += deltaTime * 1.5
+
+        // Update velocity with some damping
+        ornament.velocity.multiplyScalar(0.98)
+      })
+
+      // Update sparkles
+      sparkles.forEach((sparkle, index) => {
+        sparkle.life -= deltaTime * 2
+        if (sparkle.life <= 0) {
+          scene.remove(sparkle.mesh)
+          sparkle.mesh.geometry.dispose()
+          ;(sparkle.mesh.material as THREE.Material).dispose()
+          sparkles.splice(index, 1)
         } else {
-          const scale = 1 + age * 3
-          ripple.mesh.scale.set(scale, scale, 1)
-          ;(ripple.mesh.material as THREE.MeshBasicMaterial).opacity = 0.6 * (1 - age)
+          sparkle.mesh.position.add(
+            sparkle.velocity.clone().multiplyScalar(deltaTime * 5)
+          )
+          ;(sparkle.mesh.material as THREE.MeshBasicMaterial).opacity = sparkle.life
+          sparkle.mesh.scale.setScalar(1 + (1 - sparkle.life) * 2)
         }
       })
 
-      // Update particle positions
-      const positions = geometry.attributes.position.array as Float32Array
-      for (let i = 0; i < particleCount; i++) {
-        const i3 = i * 3
-        positions[i3] += velocities[i3] * deltaTime * 10
-        positions[i3 + 1] += velocities[i3 + 1] * deltaTime * 10
-        positions[i3 + 2] += velocities[i3 + 2] * deltaTime * 10
+      // Opening animation
+      if (isOpening) {
+        const openingProgress = Math.min((now - (startTime + loadingDuration)) / 1500, 1)
+        
+        // Tree lights up
+        treeLights.forEach((light) => {
+          light.intensity = 2 + Math.sin(time * 5) * 0.5
+        })
 
-        // Boundary wrapping
-        if (Math.abs(positions[i3]) > 5) velocities[i3] *= -1
-        if (Math.abs(positions[i3 + 1]) > 5) velocities[i3 + 1] *= -1
-        if (Math.abs(positions[i3 + 2]) > 5) velocities[i3 + 2] *= -1
+        // Star glows
+        ;(star.material as THREE.MeshStandardMaterial).emissiveIntensity = 1 + openingProgress
+
+        // Ornaments settle completely
+        ornaments.forEach((ornament) => {
+          const pos = ornament.mesh.position
+          pos.lerp(ornament.targetPosition, openingProgress * 0.1)
+        })
+
+        // Camera pull back
+        camera.position.z = 8 + openingProgress * 2
+        camera.position.y = 2 + openingProgress * 1
       }
-      geometry.attributes.position.needsUpdate = true
 
       renderer.render(scene, camera)
 
@@ -334,16 +427,15 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
     const handleClick = (e: MouseEvent) => {
       if (!signalsRef.current.isTracking) return
       signalsRef.current.clicks++
-      createRipple(e.clientX, e.clientY)
+      createSparkles(e.clientX, e.clientY)
     }
 
-    // Idle time tracking - increment by 100ms each interval if idle
+    // Idle time tracking
     const idleCheckInterval = setInterval(() => {
       if (!signalsRef.current.isTracking) return
       const now = Date.now()
       const timeSinceLastMove = now - signalsRef.current.lastMoveTime
       if (timeSinceLastMove > 100) {
-        // Only count if no movement for 100ms
         signalsRef.current.idleMs += 100
       }
     }, 100)
@@ -374,13 +466,21 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
       }
 
       // Dispose Three.js resources
-      geometry.dispose()
-      material.dispose()
-      ripples.forEach((ripple) => {
-        scene.remove(ripple.mesh)
-        ripple.mesh.geometry.dispose()
-        ;(ripple.mesh.material as THREE.Material).dispose()
+      ornaments.forEach((ornament) => {
+        scene.remove(ornament.mesh)
+        ornament.mesh.geometry.dispose()
+        ;(ornament.mesh.material as THREE.Material).dispose()
       })
+
+      sparkles.forEach((sparkle) => {
+        scene.remove(sparkle.mesh)
+        sparkle.mesh.geometry.dispose()
+        ;(sparkle.mesh.material as THREE.Material).dispose()
+      })
+
+      treeLights.forEach((light) => scene.remove(light))
+      scene.remove(treeGroup)
+      scene.remove(ambientLight)
 
       if (renderer && container) {
         container.removeChild(renderer.domElement)
@@ -397,4 +497,3 @@ export default function LoadingGift({ onComplete, reducedMotion = false }: Loadi
     />
   )
 }
-
