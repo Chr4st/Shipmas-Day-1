@@ -197,9 +197,9 @@ export default function Home() {
               </div>
 
               {/* Behavior reflection */}
-              {userSignals && (
+              {compliment.reflection && (
                 <p className="text-base text-white/50 font-light italic mt-4">
-                  {generateBehaviorReflection(userSignals)}
+                  {compliment.reflection}
                 </p>
               )}
 
